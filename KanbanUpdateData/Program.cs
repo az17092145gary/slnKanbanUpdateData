@@ -43,8 +43,8 @@ TempData createTemp(LOWDATA item)
 }
 string findWKC(SqlConnection con, string sql, string DeviceName, string strTime, string endTime, DateTime lastTimeData)
 {
-    strTime = Convert.ToDateTime(strTime).AddDays(-1).ToString("yyyy-MM-dd HH:mm:ss");
-    endTime = Convert.ToDateTime(endTime).AddDays(-1).ToString("yyyy-MM-dd HH:mm:ss");
+    strTime = Convert.ToDateTime(strTime).AddDays(-1).ToString("yyyy-MM-dd 08:00:00");
+    endTime = Convert.ToDateTime(endTime).ToString("yyyy-MM-dd 08:00:00");
     sql = $"SELECT Min(TIME) FROM [AIOT].[dbo].[Machine_Data]";
     if (Convert.ToDateTime(strTime) < lastTimeData)
     {
@@ -60,32 +60,8 @@ string findWKC(SqlConnection con, string sql, string DeviceName, string strTime,
         }
         else
         {
+            endTime = Convert.ToDateTime(endTime).AddDays(-1).ToString("yyyy-MM-dd 08:00:00");
             data = findWKC(con, sql, DeviceName, strTime, endTime, lastTimeData);
-            return data.TrimStart().TrimEnd();
-        }
-    }
-}
-string findPNO(SqlConnection con, string sql, string DeviceName, string strTime, string endTime, DateTime lastTimeData)
-{
-    strTime = Convert.ToDateTime(strTime).ToString("yyyy-MM-dd HH:mm:ss");
-    endTime = Convert.ToDateTime(endTime).ToString("yyyy-MM-dd HH:mm:ss");
-    if (Convert.ToDateTime(strTime) < lastTimeData)
-    {
-        return "找不到P數";
-    }
-    else
-    {
-        sql = $"SELECT TOP(1) VALUE FROM [AIOT].[dbo].[Machine_Data] where NAME like '%PNO%' and time between '{strTime}' and '{endTime}' AND Quality <> 'Bad' AND DEVICENAME like '%{DeviceName}%' AND VALUE <> '' AND VALUE IS NOT NULL  order by TIME desc";
-        var data = con.QueryFirstOrDefault<string>(sql);
-        if (data != null)
-        {
-            return data.TrimStart().TrimEnd();
-        }
-        else
-        {
-            strTime = Convert.ToDateTime(strTime).AddDays(-1).ToString("yyyy-MM-dd HH:mm:ss");
-            endTime = Convert.ToDateTime(endTime).AddDays(-1).ToString("yyyy-MM-dd HH:mm:ss");
-            data = findPNO(con, sql, DeviceName, strTime, endTime, lastTimeData);
             return data.TrimStart().TrimEnd();
         }
     }
@@ -268,7 +244,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     //ADR:時間稼動率
 
     //依照 廠區、產品、產線統整
-    var Line_MachineDailyData = machineDataList.Where(x => x.Exception != true).GroupBy(x => new { x.Factory, x.Line, x.Product, x.Item, x.Alloted, x.Folor }).Select(y =>
+    var Line_MachineDailyData = machineDataList.GroupBy(x => new { x.Factory, x.Line, x.Product, x.Item, x.Alloted, x.Folor }).Select(y =>
     {
         //預計投入工時(Throughput)
         var ETC = Math.Round((Convert.ToDateTime(y.Where(x => x.Throughput == true).Select(x => x.MaxTime).FirstOrDefault()) - Convert.ToDateTime(_strTime)).TotalHours, 2);
@@ -295,6 +271,8 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var SC = Convert.ToDouble(pcsList.Where(x => x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).Select(y => y.PCS).FirstOrDefault());
         //實際產量(Throughput)
         var AO = y.Where(x => x.Throughput == true).Select(x => x.Sum).FirstOrDefault(0.0);
+        var lastYieIDAO = y.Where(x => x.Throughput == true).Select(x => x.NGS).FirstOrDefault(0.0);
+        AO = AO + lastYieIDAO;
         var YieIdAO = y.Where(x => x.Defective == true && x.Throughput != true).Select(x => x.Sum).FirstOrDefault(0.0);
         var countYieId = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
         var Performance = Math.Round(((AO / SC) / ACT) * 100, 2).ToString();
