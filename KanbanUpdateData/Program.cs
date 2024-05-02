@@ -74,6 +74,7 @@ string findWKC(SqlConnection con, string sql, string DeviceName, string strTime,
 }
 void inputData(out string sql, string _strTime, string _endTime, string _Date, SqlConnection conn, List<TempData> completeLowDatas, List<NonWork> completeNonWorkDataS, List<DailyERRData> dailyERRDatas)
 {
+
     foreach (var item in completeLowDatas)
     {
 
@@ -93,27 +94,6 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         }
     }
 
-
-    //取出150R最後一台 2024-04-19
-    //無開機需要扣除試做單
-    //var tempWorkCodeList = completeLowDatas.Where(x => x.WorkCode.Contains("150R-") && x.Throughput == true).GroupBy(x =>
-    //new { x.Item, x.Product, x.Line, x.Factory, x.DeviceName, x.Alloted, x.Folor, x.Activation, x.Throughput, x.Defective, x.Exception }).Select(y => new
-    //{
-    //    y.Key.Alloted,
-    //    y.Key.Folor,
-    //    y.Key.Line,
-    //    y.Key.Item,
-    //    y.Key.Product,
-    //    y.Key.Factory,
-    //    y.Key.DeviceName,
-    //    y.Key.Activation,
-    //    y.Key.Throughput,
-    //    y.Key.Defective,
-    //    y.Key.Exception,
-    //    MinTime = y.Min(z => z.StartTime) ?? null,
-    //    MaxTime = y.Max(z => z.EndTime) ?? null,
-    //    StopRunTime = y.Sum(z => Convert.ToDouble(z.RunSumStopTime))
-    //}).ToList();
 
 
     //日報表不用排除150R試做工單，看板系統需要排除
@@ -150,17 +130,6 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     //全部品名
     var Product_NameList = new List<TempStd>();
 
-    ////取出瓶警機當日工作時間最長的WorkCode
-    //var tempStdList = completeLowDatas.Where(x => x.Activation == true && !x.WorkCode.Contains("150R-")).GroupBy(x => new { x.Factory, x.Item, x.Product, x.Line, x.WorkCode }).Select(y => new
-    //{
-    //    y.Key.Factory,
-    //    y.Key.WorkCode,
-    //    y.Key.Product,
-    //    y.Key.Line,
-    //    y.Key.Item,
-    //    Model = completeLowDatas.Where(x => x.Activation == true && !x.WorkCode.Contains("150R-")).Select(x => x.Model).FirstOrDefault(),
-    //    AllTime = (Convert.ToDateTime(y.Max(z => z.EndTime)) - Convert.ToDateTime(y.Min(z => z.StartTime))).TotalMinutes
-    //}).GroupBy(x => new { x.Factory, x.Product, x.Line, x.Item }).Select(y => y.OrderByDescending(z => z.AllTime).First()).ToList();
     var tempStdList = completeLowDatas.Where(x => x.Activation == true && !x.WorkCode.Contains("150R-")).GroupBy(x => new { x.Factory, x.Item, x.Product, x.Line, x.WorkCode }).Select(y => new
     {
         y.Key.Factory,
