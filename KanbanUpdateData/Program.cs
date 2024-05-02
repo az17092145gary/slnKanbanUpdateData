@@ -91,9 +91,10 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             if (item.Name.Contains("closeMachine"))
             {
                 var EndTime = completeLowDatas.Where(x => x.WorkCode == item.WorkCode && x.DeviceName == item.DeviceName).Select(x => x.EndTime).FirstOrDefault();
-                if(EndTime != null)
+                if (EndTime != null)
                 {
                     item.EndTime = EndTime;
+                    item.SumTime = (Convert.ToDateTime(item.EndTime) - Convert.ToDateTime(item.StartTime)).TotalMinutes;
                 }
             }
             item.EndTime = _endTime;
@@ -217,12 +218,12 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
                              group a by new { a.Item, a.Factory, a.Product, a.Line, b.Count, a.WorkCode } into g
                              select new
                              {
-                                 Item = g.Key.Item,
-                                 Factory = g.Key.Factory,
-                                 Product = g.Key.Product,
-                                 Line = g.Key.Line,
-                                 Count = g.Key.Count,
-                                 WorkCode = g.Key.WorkCode,
+                                 g.Key.Item,
+                                 g.Key.Factory,
+                                 g.Key.Product,
+                                 g.Key.Line,
+                                 g.Key.Count,
+                                 g.Key.WorkCode,
                                  TotalCount = g.Count()
                              };
 
@@ -265,8 +266,11 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         //2024/04/25
         //換品名時間
         var NonChangeProductName = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == MachineCount && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("ChangeProductName")).Sum(x => x.SumTime) / 60;
+        //關機時間
+        var NonCloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == MachineCount && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("closeMachine")).Sum(x => x.SumTime) / 60;
+
         //無開機工時
-        var NonTime = NonDMITime + NonQIMTime + NonStopQTime + NonChangeProductName;
+        var NonTime = NonDMITime + NonQIMTime + NonStopQTime + NonChangeProductName + NonCloseTime;
         //設備損失工時已排除(Exception)//自動運行狀態下臨停10分鐘以上
         var StopRunTime = y.Where(x => Convert.ToInt32(x.DeviceOrder) == MachineCount).Select(x => x.StopRunTime).FirstOrDefault(0.0) / 60;
         //機台故障維修//人員操作機故障時間
