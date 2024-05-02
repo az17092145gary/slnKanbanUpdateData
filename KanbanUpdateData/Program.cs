@@ -11,10 +11,8 @@ using Oracle.ManagedDataAccess.Client;
 string connectionString = "Data Source= 192.168.0.82;Initial Catalog=AIOT;Persist Security Info=True;User ID=sa;Password=P@ssw0rd;Encrypt=True;TrustServerCertificate=True";
 string produndtConnectionString = "User ID=ds;Password=ds;Data Source=192.168.160.207:1521/topprod";
 
-
+//執行
 executeMethod();
-
-//123122121
 
 TempData createTemp(LOWDATA item)
 {
