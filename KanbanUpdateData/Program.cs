@@ -87,6 +87,15 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     {
         if (string.IsNullOrEmpty(item.EndTime))
         {
+            //關機時間:如果是Null代表關機後沒有執行過，EndTime押上工單結束時間。
+            if (item.Name.Contains("closeMachine"))
+            {
+                var EndTime = completeLowDatas.Where(x => x.WorkCode == item.WorkCode && x.DeviceName == item.DeviceName).Select(x => x.EndTime).FirstOrDefault();
+                if(EndTime != null)
+                {
+                    item.EndTime = EndTime;
+                }
+            }
             item.EndTime = _endTime;
             item.SumTime = (Convert.ToDateTime(item.EndTime) - Convert.ToDateTime(item.StartTime)).TotalMinutes;
         }
@@ -434,15 +443,6 @@ void executeMethod()
             //判斷不是關機的狀態關機斷
             if (item.Quality != "Bad")
             {
-                //如果有關機時間就計算總時數
-                var closeNonWork = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName && x.Name == "close").Select(x => x).FirstOrDefault();
-                if (closeNonWork != null)
-                {
-                    closeNonWork.EndTime = item.Time;
-                    closeNonWork.SumTime = (Convert.ToDateTime(closeNonWork.EndTime) - Convert.ToDateTime(closeNonWork.StartTime)).TotalMinutes;
-                    tempNonWorkData.Remove(closeNonWork);
-                    completeNonWorkDataS.Add(closeNonWork);
-                }
                 //判斷品檢模式
                 if (item.Name.ToUpper().Contains("QIM"))
                 {
@@ -725,6 +725,16 @@ void executeMethod()
                             oldData.RunStartTime = item.Time;
                             oldData.State = "自動運行中";
 
+                            //如果有關機時間就計算總時數
+                            var closeNonWork = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName && x.Name == "closeMachine" && x.WorkCode == oldData.WorkCode).Select(x => x).FirstOrDefault();
+                            if (closeNonWork != null)
+                            {
+                                closeNonWork.EndTime = item.Time;
+                                closeNonWork.SumTime = (Convert.ToDateTime(closeNonWork.EndTime) - Convert.ToDateTime(closeNonWork.StartTime)).TotalMinutes;
+                                tempNonWorkData.Remove(closeNonWork);
+                                completeNonWorkDataS.Add(closeNonWork);
+                            }
+
                             //退出品檢模式時如果沒有案的話就會計算中間的空白時間
                             var tempNonWorkStopQIMTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
                             if (tempNonWorkStopQIMTime != null)
@@ -922,7 +932,7 @@ void executeMethod()
                 oldData.Quality = item.Quality;
                 //2024/04/30 
                 //關機時間紀錄
-                var closeNonWork = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName && x.Name == "close").Select(x => x).FirstOrDefault();
+                var closeNonWork = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName && x.Name == "closeMachine" && x.WorkCode == oldData.WorkCode).Select(x => x).FirstOrDefault();
                 if (closeNonWork == null)
                 {
                     NonWork nonWorkClose = new NonWork();
@@ -940,8 +950,8 @@ void executeMethod()
                     nonWorkClose.Factory = item.Factory;
                     nonWorkClose.Line = item.ProductLine;
                     nonWorkClose.StartTime = item.Time;
-                    nonWorkClose.Name = "close";
-                    nonWorkClose.Description = "close";
+                    nonWorkClose.Name = "closeMachine";
+                    nonWorkClose.Description = "closeMachine";
                     nonWorkClose.Date = _Date;
                     tempNonWorkData.Add(nonWorkClose);
                 }
