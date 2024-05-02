@@ -48,7 +48,7 @@ TempData createTemp(LOWDATA item)
 string findWKC(SqlConnection con, string sql, string DeviceName, string strTime, string endTime, DateTime lastTimeData)
 {
     strTime = Convert.ToDateTime(strTime).AddDays(-1).ToString("yyyy-MM-dd 08:00:00");
-    endTime = Convert.ToDateTime(endTime).ToString("yyyy-MM-dd 08:00:00");
+    endTime = Convert.ToDateTime(strTime).AddDays(1).ToString("yyyy-MM-dd 08:00:00");
     sql = $"SELECT Min(TIME) FROM [AIOT].[dbo].[Machine_Data]";
     if (Convert.ToDateTime(strTime) < lastTimeData)
     {
@@ -64,7 +64,6 @@ string findWKC(SqlConnection con, string sql, string DeviceName, string strTime,
         }
         else
         {
-            endTime = Convert.ToDateTime(endTime).AddDays(-1).ToString("yyyy-MM-dd 08:00:00");
             data = findWKC(con, sql, DeviceName, strTime, endTime, lastTimeData);
             return data.TrimStart().TrimEnd();
         }
@@ -75,9 +74,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
 
     foreach (var item in completeLowDatas)
     {
-
-        //如果Quality不等於Bad代表運行24小時或者並無關機
-        if (item.Quality != "Bad")
+        if (string.IsNullOrEmpty(item.EndTime))
         {
             item.EndTime = _endTime;
         }
@@ -251,7 +248,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         //工單結束時間
         var WKCStartTime = Convert.ToDateTime(y.Where(x => Convert.ToInt32(x.DeviceOrder) == MachineCount).Select(x => x.MinTime).FirstOrDefault());
         //關機時間
-        var CloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == MachineCount && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("close")).Sum(x => x.SumTime) / 60;
+        var NonCloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == MachineCount && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("closeMachine")).Sum(x => x.SumTime) / 60;
         //預計投入工時(Throughput)
         var ETC = Math.Round((WKCEndTime - WKCStartTime).TotalHours, 2);
         // 6S(Throughput)
@@ -266,11 +263,10 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         //2024/04/25
         //換品名時間
         var NonChangeProductName = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == MachineCount && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("ChangeProductName")).Sum(x => x.SumTime) / 60;
-        //關機時間
-        var NonCloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == MachineCount && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("closeMachine")).Sum(x => x.SumTime) / 60;
+
 
         //無開機工時
-        var NonTime = NonDMITime + NonQIMTime + NonStopQTime + NonChangeProductName + NonCloseTime;
+        var NonTime = NonDMITime + NonQIMTime + NonStopQTime + NonChangeProductName;
         //設備損失工時已排除(Exception)//自動運行狀態下臨停10分鐘以上
         var StopRunTime = y.Where(x => Convert.ToInt32(x.DeviceOrder) == MachineCount).Select(x => x.StopRunTime).FirstOrDefault(0.0) / 60;
         //機台故障維修//人員操作機故障時間
@@ -394,8 +390,8 @@ void executeMethod()
     //結束時間
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
-    //_strTime = "2024-04-29 08:00:00";
-    //_endTime = "2024-04-30 08:00:00";
+    _strTime = "2024-04-25 08:00:00";
+    _endTime = "2024-04-26 08:00:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     string sql = @"SELECT F.Factory, F.Item,F.Product,F.Alloted,F.Folor,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
@@ -452,7 +448,6 @@ void executeMethod()
                 {
                     if (item.Value == "1")
                     {
-                        oldData.EndTime = null;
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
                         var tempNonWorkStopQTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
                         if (tempNonWorkStopQTime != null)
@@ -548,7 +543,6 @@ void executeMethod()
                 if (item.Name.ToUpper().Contains("DMI"))
                 {
 
-                    oldData.EndTime = null;
                     if (item.Value == "1")
                     {
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
@@ -615,8 +609,6 @@ void executeMethod()
                 {
                     if (item.Value == "1")
                     {
-                        oldData.EndTime = null;
-
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
                         var tempNonWorkStopQIMTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
                         if (tempNonWorkStopQIMTime != null)
@@ -838,18 +830,10 @@ void executeMethod()
 
                     //2024 / 01 / 03增加check判斷值，確認再已有的資料中是否有相同工單編號
                     //可以避免前一天只有白班，隔天會在7: 50左右開機進行熱機送出重複的工單編號導致前一天的總時數不對
-                    bool compCheck = false;
-                    bool tempCheck = false;
-                    foreach (var wkc in completeLowDatas)
-                    {
-                        compCheck = wkc.WorkCode == item.Value.TrimStart().TrimEnd() && wkc.DeviceName == item.DeviceName ? true : false;
-                    }
-                    foreach (var wkc in tempLowDatas)
-                    {
-                        tempCheck = wkc.WorkCode == item.Value.TrimStart().TrimEnd() && wkc.DeviceName == item.DeviceName ? true : false;
-                    }
+                    var compCheck = completeLowDatas.Where(x => x.WorkCode == item.Value.TrimStart().TrimEnd() && x.DeviceName == item.DeviceName).FirstOrDefault();
+
                     //item.Value的值 不等於 oldData代表有兩種狀況 1.oldData.WorkCode = null 或者 2.item.Value是新的工單號
-                    if (oldData.WorkCode != item.Value.TrimStart().TrimEnd() && (!compCheck) && (!tempCheck))
+                    if (oldData.WorkCode != item.Value.TrimStart().TrimEnd() && compCheck == null)
                     {
                         //工單號進來的時間等於舊工單號結束的時間
                         //2024/04/19 註解 關機時間判斷錯誤
@@ -857,8 +841,8 @@ void executeMethod()
                         oldData.Quality = "Bad";
 
                         var templist = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName && x.WorkCode == oldData.WorkCode).OrderByDescending(x => x.StartTime).FirstOrDefault();
-
                         NonWork nonWorkChangeProductName;
+                        //換品名時間
                         if (templist != null)
                         {
                             //加上換品名時間
@@ -919,6 +903,11 @@ void executeMethod()
             //關機寫入關機時間，寫入關機狀態，關機流程: 停機 >> (缺料停機改善、機台故障維修)>> 關機，關機前把缺料停機改善及機台故障維修清除
             else
             {
+                oldData.State = "關機";
+                oldData.EndTime = item.Time;
+                oldData.Quality = item.Quality;
+                oldData.RunState = "0";
+
                 //關機時把缺料、機故時間結算
                 var tempNonWork = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName).Select(x => x).ToList();
                 if (tempNonWork.Count > 0)
@@ -931,9 +920,6 @@ void executeMethod()
                         tempNonWorkData.Remove(temp);
                     }
                 }
-                oldData.State = "關機";
-                oldData.EndTime = item.Time;
-                oldData.Quality = item.Quality;
                 //2024/04/30 
                 //關機時間紀錄
                 var closeNonWork = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName && x.Name == "closeMachine" && x.WorkCode == oldData.WorkCode).Select(x => x).FirstOrDefault();
