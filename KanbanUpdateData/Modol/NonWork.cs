@@ -9,6 +9,8 @@ namespace KanbanUpdateData.Model
     internal class NonWork
     {
         public string? DeviceName { get; set; }
+        public string? WorkCode { get; set; }
+        public string? DeviceOrder { get; set; }
         public bool? Defective { get; set; }
         public bool? Activation { get; set; }
         public bool? Throughput { get; set; }

@@ -13,6 +13,7 @@ namespace KanbanUpdateData.Model
         public string? Product { get; set; }
         public string? Alloted { get; set; }
         public string? Model { get; set; }
+        public string? DeviceOrder { get; set; }
         public string? Folor { get; set; }
         public string? ProductLine { get; set; }
         public string? DeviceName { get; set; }

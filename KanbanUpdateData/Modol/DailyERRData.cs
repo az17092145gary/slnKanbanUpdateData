@@ -9,6 +9,7 @@ namespace KanbanUpdateData.Model
     internal class DailyERRData
     {
         public string? DeviceName { get; set; }
+        public string? WorkCode { get; set; }
         public string? Line { get; set; }
         public string? Date { get; set; }
         public string? Time { set; get; }

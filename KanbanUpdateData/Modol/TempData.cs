@@ -9,6 +9,7 @@ namespace KanbanUpdateData.Model
     internal class TempData
     {
         public string? DeviceName { get; set; }
+        public string? DeviceOrder { get; set; }
         public string? Product { get; set; }
         public string? Factory { get; set; }
         public string? State { get; set; }
@@ -30,8 +31,8 @@ namespace KanbanUpdateData.Model
         public string? Date { get; set; }
         public string? StartTime { get; set; }
         public string? EndTime { get; set; }
-        public string? Sum { get; set; }
-        public string? NGSum { get; set; }
+        public int? Sum { get; set; }
+        public int? NGSum { get; set; }
         public string? RunState { get; set; }
         public string? Quality { get; set; }
         public string? RunStartTime { get; set; }
