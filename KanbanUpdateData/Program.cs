@@ -263,7 +263,8 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var PT = Math.Round((double)(ETC - NonTime), 2);
         var ACT = Math.Round(PT - StopRunTime, 2);
         //顯示當日更換的所有品名
-        var Product_Name = string.Join(", ", Product_NameList.Where(x => x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).GroupBy(x => x.Product_Name).Select(x => x.Key));
+        //var Product_Name = string.Join(", ", Product_NameList.Where(x => x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).GroupBy(x => x.Product_Name).Select(x => x.Key));
+        var Product_Name = pcsList.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).Select(y => y.Product_Name).FirstOrDefault();
         var SC = Convert.ToDouble(pcsList.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).Select(y => y.PCS).FirstOrDefault());
         //實際產量(Throughput)
         var AO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == MachineCount).Select(x => x.Sum).FirstOrDefault(0.0);
@@ -376,7 +377,7 @@ void executeMethod()
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
     //_strTime = "2024-04-29 08:00:00";
-    //_endTime = "2024-04-30 08:00:00";
+    //_endTime = "2024-04-29 11:00:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     string sql = @"SELECT F.Factory, F.Item,F.Product,F.Alloted,F.Folor,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
