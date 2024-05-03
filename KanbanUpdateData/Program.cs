@@ -896,7 +896,7 @@ void executeMethod()
                 //只有第一筆會進行新增建工單，
                 if (!string.IsNullOrEmpty(oldData.StartTime))
                 {
-                    oldData.State = "關機";
+                    oldData.State = "完成";
                     oldData.EndTime = item.Time;
                     oldData.Quality = item.Quality;
                     oldData.RunState = "0";
