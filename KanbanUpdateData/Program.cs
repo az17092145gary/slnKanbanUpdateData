@@ -39,10 +39,9 @@ TempData createTemp(LOWDATA item)
     tempData.Throughput = item.Throughput;
     tempData.Defective = item.Defective;
     tempData.Exception = item.Exception;
-    tempData.RunStartTime = item.Time;
-    tempData.StartTime = item.Time;
     tempData.QIMSuperMode = false;
     tempData.DMISuperMode = false;
+    tempData.MTCSuperMode = false;
     return tempData;
 }
 string findWKC(SqlConnection con, string sql, string DeviceName, string strTime, string endTime, DateTime lastTimeData)
@@ -321,7 +320,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     });
 
     //2024/04/19 排除異常數據
-    Line_MachineDailyData = Line_MachineDailyData.Where(x => x.AO > 0 && Convert.ToDouble(x.Performance) > 0).Select(x => x).ToList();
+    Line_MachineDailyData = Line_MachineDailyData.Where(x => x.AO > 0 && Convert.ToDouble(x.Performance) > 0 && x.SC > 0).Select(x => x).ToList();
     //刪除看板系統紀錄
     sql = " DELETE [AIOT].[dbo].[KanBan_Line_MachineData] ";
     sql += " DELETE [AIOT].[dbo].[KanBan_Machine_StopTenDown] ";
@@ -383,6 +382,7 @@ void executeMethod()
     string sql = @"SELECT F.Factory, F.Item,F.Product,F.Alloted,F.Folor,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
     sql += $" FROM(select * FROM[AIOT].[dbo].[Machine_Data] WHERE TIME BETWEEN '{_strTime}' AND '{_endTime}') AS MD";
     sql += " LEFT JOIN [AIOT].[dbo].[Factory]as F ON F.[IODviceName] = MD.[DeviceName] ";
+   // sql += " Where F.ProductLine = '08'";
     sql += " ORDER BY TIME";
 
     //暫存資料分類
@@ -434,6 +434,11 @@ void executeMethod()
                 {
                     if (item.Value == "1")
                     {
+                        if (string.IsNullOrEmpty(oldData.StartTime))
+                        {
+                            oldData.StartTime = item.Time;
+                        }
+
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
                         var tempNonWorkStopQTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
                         if (tempNonWorkStopQTime != null)
@@ -531,6 +536,12 @@ void executeMethod()
 
                     if (item.Value == "1")
                     {
+                        if (string.IsNullOrEmpty(oldData.StartTime))
+                        {
+                            oldData.StartTime = item.Time;
+                        }
+
+
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
                         var tempNonWorkStopQIMTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
                         if (tempNonWorkStopQIMTime != null)
@@ -595,6 +606,11 @@ void executeMethod()
                 {
                     if (item.Value == "1")
                     {
+                        if (string.IsNullOrEmpty(oldData.StartTime))
+                        {
+                            oldData.StartTime = item.Time;
+                        }
+
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
                         var tempNonWorkStopQIMTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
                         if (tempNonWorkStopQIMTime != null)
@@ -707,7 +723,10 @@ void executeMethod()
                             oldData.RunStartTime = item.Time;
                             oldData.State = "自動運行中";
                             oldData.SumTime = null;
-
+                            if (string.IsNullOrEmpty(oldData.StartTime))
+                            {
+                                oldData.StartTime = item.Time;
+                            }
                             //退出品檢模式時如果沒有案的話就會計算中間的空白時間
                             var tempNonWorkStopQIMTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
                             if (tempNonWorkStopQIMTime != null)
@@ -873,11 +892,21 @@ void executeMethod()
             //關機寫入關機時間，寫入關機狀態，關機流程: 停機 >> (缺料停機改善、機台故障維修)>> 關機，關機前把缺料停機改善及機台故障維修清除
             else
             {
-                oldData.State = "關機";
-                oldData.EndTime = item.Time;
-                oldData.Quality = item.Quality;
-                oldData.RunState = "0";
-                oldData.SumTime = (Convert.ToDateTime(oldData.EndTime) - Convert.ToDateTime(oldData.StartTime)).TotalMinutes;
+                //關機後開機會送新的WorkCode所以相當於換工單
+                //只有第一筆會進行新增建工單，
+                if (!string.IsNullOrEmpty(oldData.StartTime))
+                {
+                    oldData.State = "關機";
+                    oldData.EndTime = item.Time;
+                    oldData.Quality = item.Quality;
+                    oldData.RunState = "0";
+                    oldData.SumTime = (Convert.ToDateTime(oldData.EndTime) - Convert.ToDateTime(oldData.StartTime)).TotalMinutes;
+                    completeLowDatas.Add(oldData);
+                    var newData = createTemp(item);
+                    newData.WorkCode = oldData.WorkCode;
+                    tempLowDatas.Remove(oldData);
+                    tempLowDatas.Add(newData);
+                }
                 //關機時把缺料、機故時間結算
                 var tempNonWork = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName).Select(x => x).ToList();
                 if (tempNonWork.Count > 0)
@@ -903,7 +932,7 @@ void executeMethod()
         //2024/03/06新增
         //判斷產線有沒有執行，如果沒有從completeLowDatas移除
         //沒有RunStartTime等於沒有自動運行
-        completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime));
+        completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime) || x.Sum < 5);
         #endregion
         //當日有資料才進行分析
         if (completeLowDatas.Count > 0)
