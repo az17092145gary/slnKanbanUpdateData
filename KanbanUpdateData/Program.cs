@@ -16,8 +16,6 @@ executeMethod();
 
 TempData createTemp(LOWDATA item)
 {
-
-
     TempData tempData = new TempData();
     tempData.StopTenUP = new List<MachineStop>();
     tempData.StopTenDown = new List<MachineStop>();
@@ -92,7 +90,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
 
 
 
-    //日報表不用排除150R試做工單，看板系統需要排除
+    //排除150R試做工單
     var machineDataList = completeLowDatas.Where(x => !x.WorkCode.Contains("150R-")).GroupBy(x =>
     new { x.WorkCode, x.DeviceOrder, x.Item, x.Product, x.Line, x.Factory, x.DeviceName, x.Alloted, x.Folor, x.Activation, x.Throughput, x.Defective, x.Exception }).Select(y => new
     {
@@ -433,22 +431,16 @@ void executeMethod()
                 //判斷品檢模式
                 if (item.Name.ToUpper().Contains("QIM"))
                 {
+                    if (string.IsNullOrEmpty(oldData.StartTime))
+                    {
+                        oldData.StartTime = item.Time;
+                    }
                     if (item.Value == "1")
                     {
-                        if (string.IsNullOrEmpty(oldData.StartTime))
-                        {
-                            oldData.StartTime = item.Time;
-                        }
-
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
-                        var tempNonWorkStopQTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
-                        if (tempNonWorkStopQTime != null)
-                        {
-                            tempNonWorkStopQTime.EndTime = item.Time;
-                            tempNonWorkStopQTime.SumTime = (Convert.ToDateTime(tempNonWorkStopQTime.EndTime) - Convert.ToDateTime(tempNonWorkStopQTime.StartTime)).TotalMinutes;
-                            tempNonWorkData.Remove(tempNonWorkStopQTime);
-                            completeNonWorkDataS.Add(tempNonWorkStopQTime);
-                        }
+                        countQutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
+                        //品檢模式抓取6S時間防止在自動運行時重複抓取
+                        count6STime(_strTime, _Date, completeNonWorkDataS, item, oldData);
 
                         var tempNonWork = tempNonWorkData.Where(x => x.Name == item.Name && x.DeviceName == item.DeviceName).FirstOrDefault();
                         if (tempNonWork == null)
@@ -463,9 +455,6 @@ void executeMethod()
                                     tempNonWorkData.Remove(tempDMI);
                                 }
                             }
-                            //2024 / 4 / 1新增
-                            //直接進入品檢模式抓取6S時間防止在自動運行時重複抓取
-                            count6STime(_strTime, _Date, completeNonWorkDataS, item, oldData);
                             //無開機工時紀錄
                             NonWork nonWork = new NonWork();
                             nonWork.WorkCode = oldData.WorkCode;
@@ -534,24 +523,14 @@ void executeMethod()
                 //缺料停機改善1的時候自動運轉一定為0，缺料停機改善0的時候自動運轉一定為1
                 if (item.Name.ToUpper().Contains("DMI"))
                 {
-
+                    if (string.IsNullOrEmpty(oldData.StartTime))
+                    {
+                        oldData.StartTime = item.Time;
+                    }
                     if (item.Value == "1")
                     {
-                        if (string.IsNullOrEmpty(oldData.StartTime))
-                        {
-                            oldData.StartTime = item.Time;
-                        }
-
-
-                        //退出品檢模式時如果沒有案的話就會計算中間的空白時間
-                        var tempNonWorkStopQIMTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
-                        if (tempNonWorkStopQIMTime != null)
-                        {
-                            tempNonWorkStopQIMTime.EndTime = item.Time;
-                            tempNonWorkStopQIMTime.SumTime = (Convert.ToDateTime(tempNonWorkStopQIMTime.EndTime) - Convert.ToDateTime(tempNonWorkStopQIMTime.StartTime)).TotalMinutes;
-                            tempNonWorkData.Remove(tempNonWorkStopQIMTime);
-                            completeNonWorkDataS.Add(tempNonWorkStopQIMTime);
-                        }
+                        ///退出品檢模式時如果沒有案的話就會計算中間的空白時間
+                        countQutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
                         //2024/4/22新增
                         //直接進入品檢模式抓取6S時間防止在自動運行時重複抓取
                         count6STime(_strTime, _Date, completeNonWorkDataS, item, oldData);
@@ -594,33 +573,20 @@ void executeMethod()
                         {
                             UpdateNonTime(tempNonWorkData, completeNonWorkDataS, item, oldData, tempNonWork);
                         }
-                        //2024-04-19新增:缺料停機結束=自動運行啟動
-                        if (string.IsNullOrEmpty(oldData.StartTime))
-                        {
-                            oldData.StartTime = item.Time;
-                        }
                     }
                     oldData.DMISuperMode = item.Value == "1" ? true : false;
                 }
                 //判斷機台故障維修
                 if (item.Name.ToUpper().Contains("MTC"))
                 {
+                    if (string.IsNullOrEmpty(oldData.StartTime))
+                    {
+                        oldData.StartTime = item.Time;
+                    }
                     if (item.Value == "1")
                     {
-                        if (string.IsNullOrEmpty(oldData.StartTime))
-                        {
-                            oldData.StartTime = item.Time;
-                        }
-
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
-                        var tempNonWorkStopQIMTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
-                        if (tempNonWorkStopQIMTime != null)
-                        {
-                            tempNonWorkStopQIMTime.EndTime = item.Time;
-                            tempNonWorkStopQIMTime.SumTime = (Convert.ToDateTime(tempNonWorkStopQIMTime.EndTime) - Convert.ToDateTime(tempNonWorkStopQIMTime.StartTime)).TotalMinutes;
-                            tempNonWorkData.Remove(tempNonWorkStopQIMTime);
-                            completeNonWorkDataS.Add(tempNonWorkStopQIMTime);
-                        }
+                        countQutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
                         count6STime(_strTime, _Date, completeNonWorkDataS, item, oldData);
                         var tempNonWork = tempNonWorkData.Where(x => x.Name == item.Name && x.DeviceName == item.DeviceName).FirstOrDefault();
                         if (tempNonWork == null)
@@ -661,11 +627,6 @@ void executeMethod()
                         {
                             UpdateNonTime(tempNonWorkData, completeNonWorkDataS, item, oldData, tempNonWork);
                         }
-                        //2024-04-19新增:缺料停機結束=自動運行啟動
-                        if (string.IsNullOrEmpty(oldData.StartTime))
-                        {
-                            oldData.StartTime = item.Time;
-                        }
                     }
                     oldData.MTCSuperMode = item.Value == "1" ? true : false;
                 }
@@ -698,8 +659,6 @@ void executeMethod()
                             oldData.NGSum += 1;
                         }
                     }
-
-
                 }
                 //判斷是否處於無開機工時模式(品檢、缺料停機)
                 if (oldData.QIMSuperMode != true && oldData.DMISuperMode != true && oldData.MTCSuperMode != true)
@@ -707,7 +666,6 @@ void executeMethod()
                     //判斷機台啟動
                     if (item.Name.ToUpper().Contains("RUN"))
                     {
-
                         //開機停機時間收集
                         MachineStop machineStop = new MachineStop();
                         machineStop.DeviceName = item.DeviceName;
@@ -724,19 +682,13 @@ void executeMethod()
                             oldData.RunStartTime = item.Time;
                             oldData.State = "自動運行中";
                             oldData.SumTime = null;
+
                             if (string.IsNullOrEmpty(oldData.StartTime))
                             {
                                 oldData.StartTime = item.Time;
                             }
                             //退出品檢模式時如果沒有案的話就會計算中間的空白時間
-                            var tempNonWorkStopQIMTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
-                            if (tempNonWorkStopQIMTime != null)
-                            {
-                                tempNonWorkStopQIMTime.EndTime = item.Time;
-                                tempNonWorkStopQIMTime.SumTime = (Convert.ToDateTime(tempNonWorkStopQIMTime.EndTime) - Convert.ToDateTime(tempNonWorkStopQIMTime.StartTime)).TotalMinutes;
-                                tempNonWorkData.Remove(tempNonWorkStopQIMTime);
-                                completeNonWorkDataS.Add(tempNonWorkStopQIMTime);
-                            }
+                            countQutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
 
                             //臨停時候換品名
                             var tempNonWork = tempNonWorkData.Where(x => x.Name == "ChangeProductName" && x.DeviceName == item.DeviceName).FirstOrDefault();
@@ -1055,5 +1007,14 @@ void SendEMail(string Conetext)
 
 }
 
-
-
+static void countQutQIMTime(List<NonWork> tempNonWorkData, List<NonWork> completeNonWorkDataS, LOWDATA item)
+{
+    var tempNonWorkStopQTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
+    if (tempNonWorkStopQTime != null)
+    {
+        tempNonWorkStopQTime.EndTime = item.Time;
+        tempNonWorkStopQTime.SumTime = (Convert.ToDateTime(tempNonWorkStopQTime.EndTime) - Convert.ToDateTime(tempNonWorkStopQTime.StartTime)).TotalMinutes;
+        tempNonWorkData.Remove(tempNonWorkStopQTime);
+        completeNonWorkDataS.Add(tempNonWorkStopQTime);
+    }
+}
