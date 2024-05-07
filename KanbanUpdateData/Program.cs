@@ -150,7 +150,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             {
                 var tempList = machineDataList.Where(x => x.Line == item1.Line && x.Item == item1.Item && x.Product == item1.Product).Select(x => x).ToList();
                 machineDataList = machineDataList.Except(tempList).ToList();
-                emailContext += _Date + $"{item1.WorkCode}該工單對應不到標準產能。";
+                emailContext +="日期:"+ _Date +"\n"+ "工單編號:"+$"{item1.WorkCode}該工單對應不到標準產能。";
                 break;
 
             }
@@ -274,7 +274,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
         var Performance = Math.Round(((AO / SC) / ACT) * 100, 2).ToString();
         //(測試機 + 全檢(不良數)) / 測試產出量 * 100
-        var YieId = (100 - Math.Round((AllNGS) / YieIdAO * 100, 2)).ToString();
+        var YieId = Math.Round((100 - (AllNGS) / YieIdAO * 100), 2).ToString();
         var Availability = Math.Round(((ACT / PT) * 100), 2).ToString();
         var OEE = Math.Round((Convert.ToDouble(Performance) / 100) * (Convert.ToDouble(YieId) / 100) * (Convert.ToDouble(Availability) / 100) * 100, 2).ToString();
         //工單總臨停
@@ -376,14 +376,14 @@ void executeMethod()
     //結束時間
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
-    //_strTime = "2024-04-29 08:00:00";
-    //_endTime = "2024-04-29 11:00:00";
+    //_strTime = "2024-05-07 08:00:00";
+    //_endTime = "2024-05-07 14:28:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     string sql = @"SELECT F.Factory, F.Item,F.Product,F.Alloted,F.Folor,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
     sql += $" FROM(select * FROM[AIOT].[dbo].[Machine_Data] WHERE TIME BETWEEN '{_strTime}' AND '{_endTime}') AS MD";
     sql += " LEFT JOIN [AIOT].[dbo].[Factory]as F ON F.[IODviceName] = MD.[DeviceName] ";
-   // sql += " Where F.ProductLine = '08'";
+    // sql += " Where F.ProductLine = '08'";
     sql += " ORDER BY TIME";
 
     //暫存資料分類
