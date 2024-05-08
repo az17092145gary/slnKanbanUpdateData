@@ -12,7 +12,16 @@ string connectionString = "Data Source= 192.168.0.82;Initial Catalog=AIOT;Persis
 string produndtConnectionString = "User ID=ds;Password=ds;Data Source=192.168.160.207:1521/topprod";
 
 //執行
-executeMethod();
+try
+{
+    executeMethod();
+}
+catch
+{
+    DateTime dateTime = DateTime.Now;
+    string content = "KanBan程式執行有誤，時間 : " + dateTime;
+    SendEMail(content, false);
+}
 
 TempData createTemp(LOWDATA item)
 {
@@ -130,7 +139,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         y.Key.Product,
         y.Key.Line,
         y.Key.Item,
-        Model = completeLowDatas.Where(x => x.Activation == true && !x.WorkCode.Contains("150R-")).Select(x => x.Model).FirstOrDefault(),
+        Model = y.Select(x => x.Model).FirstOrDefault(),
     }).ToList();
     //工單 搜尋 ERP資料庫找到對應的料件，料件對應LOCAL DB 找出品名、PCS
     string emailContext = "";
@@ -148,7 +157,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             {
                 var tempList = machineDataList.Where(x => x.Line == item1.Line && x.Item == item1.Item && x.Product == item1.Product).Select(x => x).ToList();
                 machineDataList = machineDataList.Except(tempList).ToList();
-                emailContext +="日期:"+ _Date +"\n"+ "工單編號:"+$"{item1.WorkCode}該工單對應不到標準產能。";
+                emailContext += "日期:" + _Date + "\n" + "工單編號:" + $"{item1.WorkCode}該工單對應不到標準產能。";
                 break;
 
             }
@@ -168,7 +177,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         //對應不到標準產能的工單通知生產人員
         if (!string.IsNullOrEmpty(emailContext))
         {
-            SendEMail(emailContext);
+            SendEMail(emailContext, true);
         }
         //新增: 2024 / 03 / 18 取出當日瓶警機的全部品名
         foreach (var item2 in completeLowDatas)
@@ -196,21 +205,6 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     #region
     //排除PAT(目前沒有在看)
     dailyERRDatas = dailyERRDatas.Where(x => x.Type != "PAT").Select(y => y).ToList();
-    //取出工單臨停
-    var stopAndMachineList = from a in machineDataList
-                             join b in dailyERRDatas on a.DeviceName equals b.DeviceName
-                             where b.Type == "ERR"
-                             group a by new { a.Item, a.Factory, a.Product, a.Line, b.Count, a.WorkCode } into g
-                             select new
-                             {
-                                 g.Key.Item,
-                                 g.Key.Factory,
-                                 g.Key.Product,
-                                 g.Key.Line,
-                                 g.Key.Count,
-                                 g.Key.WorkCode,
-                                 TotalCount = g.Count()
-                             };
 
     #endregion
     //統整機台稼動率、良率、生產產能
@@ -272,11 +266,13 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
         var Performance = Math.Round(((AO / SC) / ACT) * 100, 2).ToString();
         //(測試機 + 全檢(不良數)) / 測試產出量 * 100
-        var YieId = Math.Round((100 - (AllNGS) / YieIdAO * 100), 2).ToString();
+        var YieId = Math.Round((100 - (AllNGS) / YieIdAO * 100), 2);
+        YieId = double.IsNaN(YieId) ? 100 : YieId;
         var Availability = Math.Round(((ACT / PT) * 100), 2).ToString();
         var OEE = Math.Round((Convert.ToDouble(Performance) / 100) * (Convert.ToDouble(YieId) / 100) * (Convert.ToDouble(Availability) / 100) * 100, 2).ToString();
         //工單總臨停
-        var StopCount = stopAndMachineList.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).Sum(x => x.Count);
+        var StopCount = dailyERRDatas.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Type == "ERR").Sum(x => x.Count);
+        var allTime = ACT >= 1.0 ? ACT : 1.0;
         //平均臨停
         var AVGStopCount = Math.Round(Convert.ToDouble(StopCount / ACT / MachineCount), 2).ToString();
         //最後一台機目前運行狀態
@@ -284,6 +280,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         return new
         {
             //NonChangeProductName,
+            StopCount,
             NonDMITime,
             NonQIMTime,
             NonStopQTime,
@@ -375,7 +372,7 @@ void executeMethod()
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
     //_strTime = "2024-05-07 08:00:00";
-    //_endTime = "2024-05-07 14:28:00";
+    //_endTime = "2024-05-0k8 12:31:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     string sql = @"SELECT F.Factory, F.Item,F.Product,F.Alloted,F.Folor,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
@@ -978,7 +975,7 @@ static void UpdateNonTime(List<NonWork> tempNonWorkData, List<NonWork> completeN
     oldData.State = "未運行";
 }
 
-void SendEMail(string Conetext)
+void SendEMail(string Conetext, bool check)
 {
     //寄件者帳號密碼
     string senderEmail = "aiot@dip.net.cn";
@@ -992,10 +989,17 @@ void SendEMail(string Conetext)
     mail.Subject = "AIOT系統通知信";
     mail.Body = Conetext;
     //可以加入多個收件者
-    mail.To.Add("ibukiboy@dip.com.tw");
-    mail.To.Add("why1@dip.net.cn");
-    mail.To.Add("luobing@dip.net.cn");
-    mail.CC.Add("gary.tsai@dip.com.tw");
+    if (check)
+    {
+        mail.To.Add("ibukiboy@dip.com.tw");
+        mail.To.Add("why1@dip.net.cn");
+        mail.To.Add("luobing@dip.net.cn");
+        mail.CC.Add("gary.tsai@dip.com.tw");
+    }
+    else
+    {
+        mail.CC.Add("gary.tsai@dip.com.tw");
+    }
 
     SmtpClient smtpServer = new SmtpClient("mail.dip.net.cn");
     smtpServer.Port = 25;
