@@ -32,7 +32,7 @@ TempData createTemp(LOWDATA item)
     tempData.Line = item.ProductLine;
     tempData.Factory = item.Factory;
     tempData.Alloted = item.Alloted;
-    tempData.State = "未運行";
+    tempData.State = "未自動運行";
     tempData.Folor = item.Folor;
     tempData.Model = item.Model;
     tempData.DeviceOrder = item.DeviceOrder;
@@ -229,7 +229,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         //關機時間
         var NonCloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == MachineCount && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("closeMachine")).Sum(x => x.SumTime) / 60;
         //預計投入工時(Throughput)
-        var ETC = y.Where(x => Convert.ToInt32(x.DeviceOrder) == MachineCount).Select(x => x.SumTime).FirstOrDefault(0.0) / 60;
+        var ETC = Math.Round((double)y.Where(x => Convert.ToInt32(x.DeviceOrder) == MachineCount).Select(x => x.SumTime).FirstOrDefault(0.0) / 60, 2);
         // 6S(Throughput)
         //var Non6sTime = dailyNonWorkDatas.Where(x =>x.WorkCode == y.Key.WorkCode && x.Throughput == true && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("6S")).Select(x => x.SumCount).FirstOrDefault() / 60;
         //缺料停機(Throughput)
@@ -264,7 +264,8 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         AO = AO + lastYieIDAO;
         var YieIdAO = y.Where(x => x.Defective == true && x.Throughput != true).Select(x => x.Sum).FirstOrDefault(0.0);
         var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
-        var Performance = Math.Round(((AO / SC) / ACT) * 100, 2).ToString();
+        var tempPerformance = Math.Round(((AO / SC) / ACT) * 100, 2);
+        var Performance = (tempPerformance > 100 ? 99 : tempPerformance).ToString();
         //(測試機 + 全檢(不良數)) / 測試產出量 * 100
         var YieId = Math.Round((100 - (AllNGS) / YieIdAO * 100), 2);
         YieId = double.IsNaN(YieId) ? 100 : YieId;
@@ -272,15 +273,14 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var OEE = Math.Round((Convert.ToDouble(Performance) / 100) * (Convert.ToDouble(YieId) / 100) * (Convert.ToDouble(Availability) / 100) * 100, 2).ToString();
         //工單總臨停
         var StopCount = dailyERRDatas.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Type == "ERR").Sum(x => x.Count);
-        var allTime = ACT >= 1.0 ? ACT : 1.0;
+        var allTime = ACT >= 1.00 ? ACT : 1.0;
         //平均臨停
-        var AVGStopCount = Math.Round(Convert.ToDouble(StopCount / ACT / MachineCount), 2).ToString();
+        var AVGStopCount = Math.Round(Convert.ToDouble(StopCount / allTime / MachineCount), 2).ToString();
         //最後一台機目前運行狀態
-        var State = y.Where(x => Convert.ToInt32(x.DeviceOrder) == MachineCount).Select(x => x.State).FirstOrDefault("未運行");
+        var State = y.Where(x => Convert.ToInt32(x.DeviceOrder) == MachineCount).Select(x => x.State).FirstOrDefault("未自動運行");
         return new
         {
             //NonChangeProductName,
-            StopCount,
             NonDMITime,
             NonQIMTime,
             NonStopQTime,
@@ -372,7 +372,7 @@ void executeMethod()
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
     //_strTime = "2024-05-07 08:00:00";
-    //_endTime = "2024-05-0k8 12:31:00";
+    //_endTime = "2024-05-08 12:31:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     string sql = @"SELECT F.Factory, F.Item,F.Product,F.Alloted,F.Folor,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
@@ -509,7 +509,7 @@ void executeMethod()
                                 nonWorkStopQIMTime.Description = "退出品檢到缺料停機時間";
                                 nonWorkStopQIMTime.Date = _Date;
                                 tempNonWorkData.Add(nonWorkStopQIMTime);
-                                oldData.State = "未運行";
+                                oldData.State = "未自動運行";
                             }
                         }
                     }
@@ -972,7 +972,7 @@ static void UpdateNonTime(List<NonWork> tempNonWorkData, List<NonWork> completeN
     tempNonWork.SumTime = (Convert.ToDateTime(tempNonWork.EndTime) - Convert.ToDateTime(tempNonWork.StartTime)).TotalMinutes;
     tempNonWorkData.Remove(tempNonWork);
     completeNonWorkDataS.Add(tempNonWork);
-    oldData.State = "未運行";
+    oldData.State = "自動運行中";
 }
 
 void SendEMail(string Conetext, bool check)
