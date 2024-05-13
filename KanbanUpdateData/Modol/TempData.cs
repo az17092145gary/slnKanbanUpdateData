@@ -18,8 +18,6 @@ namespace KanbanUpdateData.Model
         public bool? Activation { get; set; }
         public bool? Throughput { get; set; }
         public bool? Exception { get; set; }
-        public string? Alloted { get; set; }
-        public string? Folor { get; set; }
         public string? Item { get; set; }
         public string? Line { get; set; }
         public string? WorkCode { get; set; }

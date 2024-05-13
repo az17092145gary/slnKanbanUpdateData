@@ -16,12 +16,10 @@ namespace KanbanUpdateData.Model
         public bool? Throughput { get; set; }
         public bool? Exception { get; set; }
         public string? Item { get; set; }
+        public string? Description { get; set; }
         public string? Factory { get; set; }
         public string? Product { get; set; }
         public string? Line { get; set; }
-        public string? Alloted { get; set; }
-        public string? Folor { get; set; }
-        public string? Description { get; set; }
         public string? Date { get; set; }
         public string? Name { get; set; }
         public string? StartTime { get; set; }
