@@ -25,8 +25,8 @@ namespace KanbanUpdateData.Model
         public bool? QIMSuperMode { get; set; }
         public bool? DMISuperMode { get; set; }
         public bool? MTCSuperMode { get; set; }
-        public string? ProductNo { get; set; }
         public string? Date { get; set; }
+        public string? ModelStartTime { get; set; }
         public string? StartTime { get; set; }
         public string? EndTime { get; set; }
         public double? SumTime { get; set; }
