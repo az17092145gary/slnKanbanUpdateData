@@ -211,7 +211,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     }
     #endregion
     #region
-    //排除PAT(目前沒有在看)
+    //排除PAT
     dailyERRDatas = dailyERRDatas.Where(x => x.Type != "PAT").Select(y => y).ToList();
 
     #endregion
@@ -255,12 +255,12 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var NonStopQTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("StopQTime")).Sum(x => x.SumTime) / 60;
 
         //無開機工時
-        var NonTime = NonDMITime + NonQIMTime + NonStopQTime;
+        var NonTime = Math.Round(NonDMITime + NonQIMTime + NonStopQTime, 2);
         //設備損失工時已排除(Exception)//自動運行狀態下臨停10分鐘以上
         var StopRunTime = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.StopRunTime).FirstOrDefault(0.0) / 60;
         //機台故障維修//人員操作機故障時間
         var MTCTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("MTC")).Sum(x => x.SumTime) / 60;
-        StopRunTime = StopRunTime + MTCTime;
+        StopRunTime = Math.Round(StopRunTime + MTCTime, 2);
 
         var PT = Math.Round((double)(ETC - NonTime), 2);
         var ACT = Math.Round(PT - StopRunTime, 2);
@@ -279,7 +279,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var Performance = (tempPerformance > 100 ? 99 : tempPerformance).ToString();
         //(測試機 + 全檢(不良數)) / 測試產出量 * 100
         var YieId = Math.Round((100 - (AllNGS / YieIdAO) * 100), 2);
-        YieId = double.IsNaN(YieId) ? 100 : YieId;
+        YieId = double.IsNaN(YieId) || double.IsNegativeInfinity(YieId) || double.IsPositiveInfinity(YieId) ? 100 : YieId;
         var Availability = Math.Round(((ACT / PT) * 100), 2).ToString();
         var OEE = Math.Round((Convert.ToDouble(Performance) / 100) * (Convert.ToDouble(YieId) / 100) * (Convert.ToDouble(Availability) / 100) * 100, 2).ToString();
         //工單總臨停
@@ -318,8 +318,8 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             YieId,
             Availability,
             OEE,
-            NonTime = Math.Round(NonTime, 2),
-            StopRunTime = Math.Round(StopRunTime, 2),
+            NonTime,
+            StopRunTime,
             AVGStopCount,
             AllNGS
         };
@@ -386,9 +386,9 @@ async void executeMethod()
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     string sql = @"SELECT F.Factory, F.Item,F.Product,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
-    sql += $" FROM(select * FROM[AIOT].[dbo].[Machine_Data] WHERE TIME BETWEEN '{_strTime}' AND '{_endTime}') AS MD";
+    sql += " FROM(select * FROM[AIOT].[dbo].[Machine_Data] WHERE TIME BETWEEN @_strTime AND @_endTime ) AS MD";
     sql += " LEFT JOIN [AIOT].[dbo].[Factory]as F ON F.[IODviceName] = MD.[DeviceName] ";
-    sql += " Where F.ProductLine = '07'";
+    //sql += " Where F.ProductLine = '12' OR F.ProductLine = '10'";
     sql += " ORDER BY TIME,NAME";
 
     //暫存資料分類
@@ -409,7 +409,7 @@ async void executeMethod()
         Stopwatch stopwatch1 = new Stopwatch();
         stopwatch1.Start();
         //取出當日資料
-        var dataList = conn.Query<LOWDATA>(sql);
+        var dataList = conn.Query<LOWDATA>(sql, new { _strTime, _endTime });
         stopwatch1.Stop();
         TimeSpan timeSpan1 = stopwatch1.Elapsed;
         Console.Write("從資料庫取出資料時間:" + timeSpan1);
@@ -445,8 +445,8 @@ async void executeMethod()
             {
                 var tempWorkCode = tempBeforeWorkCodeList.FirstOrDefault(x => x.DeviceName == oldData.DeviceName)?.WorkCode;
 
-                //oldData.WorkCode = tempWorkCode == null ? findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData) : tempWorkCode;
-                oldData.WorkCode = findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData);
+                oldData.WorkCode = tempWorkCode == null ? findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData) : tempWorkCode;
+                //oldData.WorkCode = findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData);
             }
 
             //判斷不是關機的狀態關機斷
@@ -799,25 +799,27 @@ async void executeMethod()
                 //判斷工單編號
                 if (item.Name.ToUpper().Contains("_WKC_") && !string.IsNullOrEmpty(item.Value) && item.Value.Length == 13)
                 {
-                    //工單號進來的時間等於舊工單號結束的時間
-                    //2024/04/19 註解 關機時間判斷錯誤
-                    oldData.EndTime = item.Time;
-                    oldData.Quality = "Bad";
-                    oldData.SumTime = (Convert.ToDateTime(oldData.EndTime) - Convert.ToDateTime(oldData.StartTime)).TotalMinutes;
+                    if (item.Value.Trim() != oldData.WorkCode)
+                    {
+                        //工單號進來的時間等於舊工單號結束的時間
+                        //2024/04/19 註解 關機時間判斷錯誤
+                        oldData.EndTime = item.Time;
+                        oldData.Quality = "Bad";
+                        oldData.SumTime = (Convert.ToDateTime(oldData.EndTime) - Convert.ToDateTime(oldData.StartTime)).TotalMinutes;
 
-                    oldData.State = "完成";
-                    oldData.ModelStartTime = null;
+                        oldData.State = "完成";
+                        oldData.ModelStartTime = null;
 
-                    //移除TempNonTime的資料
-                    tempNonWorkData.RemoveAll(x => x.DeviceName == item.DeviceName && x.WorkCode == oldData.WorkCode);
+                        //移除TempNonTime的資料
+                        tempNonWorkData.RemoveAll(x => x.DeviceName == item.DeviceName && x.WorkCode == oldData.WorkCode);
 
-                    //更換工單                    
-                    completeLowDatas.Add(oldData);
-                    tempLowDatas.Remove(oldData);
-                    var newData = await createTemp(item);
-                    newData.WorkCode = item.Value.TrimStart().TrimEnd();
-                    tempLowDatas.Add(newData);
-
+                        //更換工單                    
+                        completeLowDatas.Add(oldData);
+                        tempLowDatas.Remove(oldData);
+                        var newData = await createTemp(item);
+                        newData.WorkCode = item.Value.TrimStart().TrimEnd();
+                        tempLowDatas.Add(newData);
+                    }
                 }
             }
             //關機寫入關機時間，寫入關機狀態，關機流程: 停機 >> (缺料停機改善、機台故障維修)>> 關機，關機前把缺料停機改善及機台故障維修清除
@@ -867,7 +869,7 @@ async void executeMethod()
         //2024/03/06新增
         //判斷產線有沒有執行，如果沒有從completeLowDatas移除
         //沒有RunStartTime等於沒有自動運行
-        //completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.StartTime));
+        completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime) || Convert.ToInt32(x.Sum) <= 1);
         #endregion
         //當日有資料才進行分析
         if (completeLowDatas.Count > 0)
