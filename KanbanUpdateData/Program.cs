@@ -25,7 +25,7 @@ catch
     SendEMail(content, false);
 }
 
-TempData createTemp(LOWDATA item)
+async Task<TempData> createTemp(LOWDATA item)
 {
     TempData tempData = new TempData();
     tempData.StopTenUP = new List<MachineStop>();
@@ -273,11 +273,12 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var lastYieIDAO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.NGS).FirstOrDefault(0.0);
         AO = AO + lastYieIDAO;
         var YieIdAO = y.Where(x => x.Defective == true && x.Throughput != true).Select(x => x.Sum).FirstOrDefault(0.0);
-        var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
+        //var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
+        var AllNGS = Convert.ToDouble(dailyERRDatas.Where(x => x.Type == "NGI" && x.WorkCode == y.Key.WorkCode).Sum(x => x.Count));
         var tempPerformance = Math.Round(((AO / SC) / ACT) * 100, 2);
         var Performance = (tempPerformance > 100 ? 99 : tempPerformance).ToString();
         //(測試機 + 全檢(不良數)) / 測試產出量 * 100
-        var YieId = Math.Round((100 - (AllNGS) / YieIdAO * 100), 2);
+        var YieId = Math.Round((100 - (AllNGS / YieIdAO) * 100), 2);
         YieId = double.IsNaN(YieId) ? 100 : YieId;
         var Availability = Math.Round(((ACT / PT) * 100), 2).ToString();
         var OEE = Math.Round((Convert.ToDouble(Performance) / 100) * (Convert.ToDouble(YieId) / 100) * (Convert.ToDouble(Availability) / 100) * 100, 2).ToString();
@@ -373,22 +374,22 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     //SendEMail(context);
 }
 
-void executeMethod()
+async void executeMethod()
 {
     //開始時間
     var _strTime = DateTime.Today.Add(new TimeSpan(8, 0, 0)).ToString("yyyy-MM-dd HH:mm:ss");
     //結束時間
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
-    //_strTime = "2024-05-14 08:00:00";
-    //_endTime = "2024-05-14 16:00:00";
+    //_strTime = "2024-05-16 08:00:00";
+    //_endTime = "2024-05-16 08:30:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     string sql = @"SELECT F.Factory, F.Item,F.Product,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
     sql += $" FROM(select * FROM[AIOT].[dbo].[Machine_Data] WHERE TIME BETWEEN '{_strTime}' AND '{_endTime}') AS MD";
     sql += " LEFT JOIN [AIOT].[dbo].[Factory]as F ON F.[IODviceName] = MD.[DeviceName] ";
-    // sql += " Where F.ProductLine = '08'";
-    sql += " ORDER BY TIME";
+    sql += " Where F.ProductLine = '07'";
+    sql += " ORDER BY TIME,NAME";
 
     //暫存資料分類
     var tempLowDatas = new List<TempData>();
@@ -430,37 +431,38 @@ void executeMethod()
         foreach (var item in dataList)
         {
             //判斷設備名稱，如果沒有該設備名稱，則建立一個Temp
-            var oldData = tempLowDatas.Where(x => x.DeviceName == item.DeviceName).FirstOrDefault();
+            var oldData = tempLowDatas.FirstOrDefault(x => x.DeviceName == item.DeviceName);
             if (oldData == null)
             {
-                var temp = createTemp(item);
+                var temp = await createTemp(item);
                 tempLowDatas.Add(temp);
             }
             //取出該筆設備Temp資料
-            oldData = tempLowDatas.Where(x => x.DeviceName == item.DeviceName).FirstOrDefault();
+            oldData = tempLowDatas.FirstOrDefault(x => x.DeviceName == item.DeviceName);
 
             //如果當天沒有輸入過WKC的話，WorKCodec會是NULL要撈取前一天的WKC，工單編號只取第一台
             if (string.IsNullOrEmpty(oldData.WorkCode))
             {
-                var tempWorkCode = tempBeforeWorkCodeList.Where(x => x.DeviceName == oldData.DeviceName).Select(x => x.WorkCode).FirstOrDefault();
+                var tempWorkCode = tempBeforeWorkCodeList.FirstOrDefault(x => x.DeviceName == oldData.DeviceName)?.WorkCode;
 
-                oldData.WorkCode = tempWorkCode == null ? findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData) : tempWorkCode;
+                //oldData.WorkCode = tempWorkCode == null ? findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData) : tempWorkCode;
+                oldData.WorkCode = findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData);
             }
 
             //判斷不是關機的狀態關機斷
-            if (item.Quality != "Bad")
+            if (item.Quality == "Good")
             {
                 //判斷品檢模式
-                if (item.Name.ToUpper().Contains("QIM"))
+                if (item.Name.ToUpper().Contains("_QIM_"))
                 {
-                    if (string.IsNullOrEmpty(oldData.StartTime))
-                    {
-                        oldData.StartTime = item.Time;
-                    }
                     if (item.Value == "1")
                     {
+                        if (string.IsNullOrEmpty(oldData.StartTime))
+                        {
+                            oldData.StartTime = item.Time;
+                        }
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
-                        countQutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
+                        countOutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
                         //品檢模式抓取6S時間防止在自動運行時重複抓取
                         count6STime(_strTime, _Date, completeNonWorkDataS, item, oldData);
 
@@ -471,7 +473,7 @@ void executeMethod()
                             //移除缺料模式，如果是先自動運行在進入品檢模式會經過缺料，所以移除若沒有經過缺料代表沒有自動運行直接進入品檢
                             if (oldData.DMISuperMode == true)
                             {
-                                var tempDMI = tempNonWorkData.Where(x => x.Name.ToUpper().Contains("DMI") && x.DeviceName == item.DeviceName).FirstOrDefault();
+                                var tempDMI = tempNonWorkData.FirstOrDefault(x => x.Name.ToUpper().Contains("_DMI_") && x.DeviceName == item.DeviceName);
                                 if (tempDMI != null)
                                 {
                                     tempNonWorkData.Remove(tempDMI);
@@ -504,9 +506,9 @@ void executeMethod()
                     {
                         //無開機工時紀錄
                         //判斷是否有異常資料，例如連續0
-                        var tempNonWork = tempNonWorkData.Where(x => x.Name == item.Name && x.DeviceName == item.DeviceName).FirstOrDefault();
+                        var tempNonWork = tempNonWorkData.FirstOrDefault(x => x.Name == item.Name && x.DeviceName == item.DeviceName);
                         //2024/04/26增加防止資料庫資料時間有問題
-                        var DMItempNonWork = tempNonWorkData.Where(x => x.Name.Contains("DMI") && x.DeviceName == item.DeviceName).FirstOrDefault();
+                        var DMItempNonWork = tempNonWorkData.FirstOrDefault(x => x.Name.Contains("_DMI_") && x.DeviceName == item.DeviceName);
                         if (tempNonWork != null)
                         {
                             UpdateNonTime(tempNonWorkData, completeNonWorkDataS, item, oldData, tempNonWork);
@@ -543,20 +545,21 @@ void executeMethod()
                 //判斷缺料停機改善
                 //進入缺料停機改善前，機器一定是處於自動運轉的狀態，當關閉缺料停機改善時，自動運行狀態一定開的
                 //缺料停機改善1的時候自動運轉一定為0，缺料停機改善0的時候自動運轉一定為1
-                if (item.Name.ToUpper().Contains("DMI"))
+                if (item.Name.ToUpper().Contains("_DMI_"))
                 {
-                    if (string.IsNullOrEmpty(oldData.StartTime))
-                    {
-                        oldData.StartTime = item.Time;
-                    }
+
                     if (item.Value == "1")
                     {
+                        if (string.IsNullOrEmpty(oldData.StartTime))
+                        {
+                            oldData.StartTime = item.Time;
+                        }
                         ///退出品檢模式時如果沒有案的話就會計算中間的空白時間
-                        countQutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
+                        countOutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
                         //2024/4/22新增
                         //直接進入品檢模式抓取6S時間防止在自動運行時重複抓取
                         count6STime(_strTime, _Date, completeNonWorkDataS, item, oldData);
-                        var tempNonWork = tempNonWorkData.Where(x => x.Name == item.Name && x.DeviceName == item.DeviceName).FirstOrDefault();
+                        var tempNonWork = tempNonWorkData.FirstOrDefault(x => x.Name == item.Name && x.DeviceName == item.DeviceName);
                         if (tempNonWork == null)
                         {
                             //無開機工時紀錄
@@ -586,7 +589,7 @@ void executeMethod()
                     else
                     {
                         //無開機工時紀錄
-                        var tempNonWork = tempNonWorkData.Where(x => x.Name == item.Name && x.DeviceName == item.DeviceName).FirstOrDefault();
+                        var tempNonWork = tempNonWorkData.FirstOrDefault(x => x.Name == item.Name && x.DeviceName == item.DeviceName);
                         if (tempNonWork != null)
                         {
                             UpdateNonTime(tempNonWorkData, completeNonWorkDataS, item, oldData, tempNonWork);
@@ -598,18 +601,18 @@ void executeMethod()
                     oldData.DMISuperMode = item.Value == "1" ? true : false;
                 }
                 //判斷機台故障維修
-                if (item.Name.ToUpper().Contains("MTC"))
+                if (item.Name.ToUpper().Contains("_MTC_"))
                 {
-                    if (string.IsNullOrEmpty(oldData.StartTime))
-                    {
-                        oldData.StartTime = item.Time;
-                    }
                     if (item.Value == "1")
                     {
+                        if (string.IsNullOrEmpty(oldData.StartTime))
+                        {
+                            oldData.StartTime = item.Time;
+                        }
                         //退出品檢模式時如果沒有案的話就會計算中間的空白時間
-                        countQutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
+                        countOutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
                         count6STime(_strTime, _Date, completeNonWorkDataS, item, oldData);
-                        var tempNonWork = tempNonWorkData.Where(x => x.Name == item.Name && x.DeviceName == item.DeviceName).FirstOrDefault();
+                        var tempNonWork = tempNonWorkData.FirstOrDefault(x => x.Name == item.Name && x.DeviceName == item.DeviceName);
                         if (tempNonWork == null)
                         {
                             // 設備損失工時
@@ -639,7 +642,7 @@ void executeMethod()
                     else
                     {
                         // 設備損失工時
-                        var tempNonWork = tempNonWorkData.Where(x => x.Name == item.Name && x.DeviceName == item.DeviceName).FirstOrDefault();
+                        var tempNonWork = tempNonWorkData.FirstOrDefault(x => x.Name == item.Name && x.DeviceName == item.DeviceName);
                         if (tempNonWork != null)
                         {
                             UpdateNonTime(tempNonWorkData, completeNonWorkDataS, item, oldData, tempNonWork);
@@ -654,7 +657,7 @@ void executeMethod()
                 if (oldData.QIMSuperMode != true)
                 {
                     //判斷不良品分類
-                    if (item.Name.ToUpper().Contains("NGI"))
+                    if (item.Name.ToUpper().Contains("_NGI_"))
                     {
                         //oldData.RunState == "1"拿掉在自動運行狀態下才計算
                         if (item.Value != "0")
@@ -664,7 +667,7 @@ void executeMethod()
                         }
                     }
                     //判斷工單數量
-                    if (item.Name.ToUpper().Contains("WKS"))
+                    if (item.Name.ToUpper().Contains("_WKS_"))
                     {
                         if (item.Value != "0")
                         {
@@ -672,7 +675,7 @@ void executeMethod()
                         }
                     }
                     //判斷不良總量
-                    if (item.Name.ToUpper().Contains("NGS"))
+                    if (item.Name.ToUpper().Contains("_NGS_"))
                     {
                         if (item.Value != "0")
                         {
@@ -684,7 +687,7 @@ void executeMethod()
                 if (oldData.QIMSuperMode != true && oldData.DMISuperMode != true && oldData.MTCSuperMode != true)
                 {
                     //判斷機台啟動
-                    if (item.Name.ToUpper().Contains("RUN"))
+                    if (item.Name.ToUpper().Contains("_RUN_"))
                     {
                         //開機停機時間收集
                         MachineStop machineStop = new MachineStop();
@@ -705,16 +708,15 @@ void executeMethod()
                             oldData.RunStartTime = item.Time;
                             oldData.State = "自動運行中";
                             oldData.SumTime = null;
-
+                            //退出品檢模式時如果沒有案的話就會計算中間的空白時間
+                            countOutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
                             if (string.IsNullOrEmpty(oldData.StartTime))
                             {
                                 oldData.StartTime = item.Time;
                             }
-                            //退出品檢模式時如果沒有案的話就會計算中間的空白時間
-                            countQutQIMTime(tempNonWorkData, completeNonWorkDataS, item);
-
                             //計算6S
                             count6STime(_strTime, _Date, completeNonWorkDataS, item, oldData);
+
                             //計算RunSumStopTime如果沒有RunEndTime(沒有停機時間)就不進行RunSumStopTime的計算，計算停機10分鐘以上的機器
                             if (!string.IsNullOrEmpty(oldData.RunEndTime))
                             {
@@ -756,7 +758,7 @@ void executeMethod()
                         }
                     }
                     //判斷PAT錯誤，開機五分鐘內的訊息不紀錄
-                    if (item.Name.ToUpper().Contains("PAT"))
+                    if (item.Name.ToUpper().Contains("_PAT_"))
                     {
                         if (item.Value == "1" && oldData.RunState == "1")
                         {
@@ -769,7 +771,7 @@ void executeMethod()
                         }
                     }
                     //判斷ERR錯誤，開機五分鐘內的訊息不紀錄
-                    if (item.Name.ToUpper().Contains("ERR"))
+                    if (item.Name.ToUpper().Contains("_ERR_"))
                     {
                         if (item.Value == "1" && oldData.RunState == "1")
                         {
@@ -795,22 +797,24 @@ void executeMethod()
 
                 }
                 //判斷工單編號
-                if (item.Name.ToUpper().Contains("WKC") && !string.IsNullOrEmpty(item.Value.Trim()) && item.Value.Length == 13 && item.Quality != "Bad")
+                if (item.Name.ToUpper().Contains("_WKC_") && !string.IsNullOrEmpty(item.Value) && item.Value.Length == 13)
                 {
                     //工單號進來的時間等於舊工單號結束的時間
                     //2024/04/19 註解 關機時間判斷錯誤
                     oldData.EndTime = item.Time;
                     oldData.Quality = "Bad";
-                    oldData.State = "完成";
                     oldData.SumTime = (Convert.ToDateTime(oldData.EndTime) - Convert.ToDateTime(oldData.StartTime)).TotalMinutes;
-                    var templist = tempNonWorkData.Where(x => x.DeviceName == item.DeviceName && x.WorkCode == oldData.WorkCode).OrderByDescending(x => x.StartTime).FirstOrDefault();
+
+                    oldData.State = "完成";
+                    oldData.ModelStartTime = null;
+
                     //移除TempNonTime的資料
                     tempNonWorkData.RemoveAll(x => x.DeviceName == item.DeviceName && x.WorkCode == oldData.WorkCode);
 
                     //更換工單                    
                     completeLowDatas.Add(oldData);
                     tempLowDatas.Remove(oldData);
-                    var newData = createTemp(item);
+                    var newData = await createTemp(item);
                     newData.WorkCode = item.Value.TrimStart().TrimEnd();
                     tempLowDatas.Add(newData);
 
@@ -831,7 +835,7 @@ void executeMethod()
                     oldData.ModelStartTime = null;
 
                     completeLowDatas.Add(oldData);
-                    var newData = createTemp(item);
+                    var newData = await createTemp(item);
                     newData.WorkCode = oldData.WorkCode;
                     tempLowDatas.Remove(oldData);
                     tempLowDatas.Add(newData);
@@ -863,7 +867,7 @@ void executeMethod()
         //2024/03/06新增
         //判斷產線有沒有執行，如果沒有從completeLowDatas移除
         //沒有RunStartTime等於沒有自動運行
-        completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime) || x.Sum < 5);
+        //completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.StartTime));
         #endregion
         //當日有資料才進行分析
         if (completeLowDatas.Count > 0)
@@ -872,8 +876,18 @@ void executeMethod()
         }
     }
 }
-
-void CountERRAndPath(LOWDATA item, TempData? oldData, string type, string Date, List<DailyERRData> dailyERRDatas)
+static void countOutQIMTime(List<NonWork> tempNonWorkData, List<NonWork> completeNonWorkDataS, LOWDATA item)
+{
+    var tempNonWorkStopQTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
+    if (tempNonWorkStopQTime != null)
+    {
+        tempNonWorkStopQTime.EndTime = item.Time;
+        tempNonWorkStopQTime.SumTime = (Convert.ToDateTime(tempNonWorkStopQTime.EndTime) - Convert.ToDateTime(tempNonWorkStopQTime.StartTime)).TotalMinutes;
+        tempNonWorkData.Remove(tempNonWorkStopQTime);
+        completeNonWorkDataS.Add(tempNonWorkStopQTime);
+    }
+}
+static void CountERRAndPath(LOWDATA item, TempData? oldData, string type, string Date, List<DailyERRData> dailyERRDatas)
 {
     //錯誤訊息計數
     var names = item.Name.ToUpper().Split('_');
@@ -910,10 +924,44 @@ void CountERRAndPath(LOWDATA item, TempData? oldData, string type, string Date, 
 
     }
 }
-
-void count6STime(string _strTime, string _Date, List<NonWork> completeNonWorkDataS, LOWDATA item, TempData? oldData)
+static void SendEMail(string Conetext, bool check)
 {
-    var check = completeNonWorkDataS.Where(x => x.Description.Equals("6S") && x.DeviceName == item.DeviceName).FirstOrDefault();
+    //寄件者帳號密碼
+    string senderEmail = "aiot@dip.net.cn";
+    string password = "dipf2aiot";
+
+    //收件者
+
+
+    MailMessage mail = new MailMessage();
+    mail.From = new MailAddress(senderEmail);
+    mail.Subject = "AIOT系統通知信";
+    mail.Body = Conetext;
+    //可以加入多個收件者
+    if (check)
+    {
+        mail.To.Add("ibukiboy@dip.com.tw");
+        mail.To.Add("why1@dip.net.cn");
+        mail.To.Add("luobing@dip.net.cn");
+        mail.CC.Add("gary.tsai@dip.com.tw");
+    }
+    else
+    {
+        mail.CC.Add("gary.tsai@dip.com.tw");
+    }
+
+    SmtpClient smtpServer = new SmtpClient("mail.dip.net.cn");
+    smtpServer.Port = 25;
+    smtpServer.Credentials = new NetworkCredential(senderEmail, password);
+    smtpServer.EnableSsl = false;
+
+    smtpServer.Send(mail);
+    Console.WriteLine("邮件发送成功！");
+
+}
+static void count6STime(string _strTime, string _Date, List<NonWork> completeNonWorkDataS, LOWDATA item, TempData? oldData)
+{
+    var check = completeNonWorkDataS.Where(x => x.Name == "6S" && x.DeviceName == item.DeviceName).FirstOrDefault();
     if (check == null)
     {
         //只有第一筆資料WorkCode是NULL
@@ -949,55 +997,10 @@ static void UpdateNonTime(List<NonWork> tempNonWorkData, List<NonWork> completeN
 
     tempNonWork.EndTime = item.Time;
     tempNonWork.SumTime = (Convert.ToDateTime(tempNonWork.EndTime) - Convert.ToDateTime(tempNonWork.StartTime)).TotalMinutes;
-    tempNonWorkData.Remove(tempNonWork);
     completeNonWorkDataS.Add(tempNonWork);
+    tempNonWorkData.Remove(tempNonWork);
     oldData.State = "自動運行中";
 }
 
-void SendEMail(string Conetext, bool check)
-{
-    //寄件者帳號密碼
-    string senderEmail = "aiot@dip.net.cn";
-    string password = "dipf2aiot";
-
-    //收件者
 
 
-    MailMessage mail = new MailMessage();
-    mail.From = new MailAddress(senderEmail);
-    mail.Subject = "AIOT系統通知信";
-    mail.Body = Conetext;
-    //可以加入多個收件者
-    if (check)
-    {
-        mail.To.Add("ibukiboy@dip.com.tw");
-        mail.To.Add("why1@dip.net.cn");
-        mail.To.Add("luobing@dip.net.cn");
-        mail.CC.Add("gary.tsai@dip.com.tw");
-    }
-    else
-    {
-        mail.CC.Add("gary.tsai@dip.com.tw");
-    }
-
-    SmtpClient smtpServer = new SmtpClient("mail.dip.net.cn");
-    smtpServer.Port = 25;
-    smtpServer.Credentials = new NetworkCredential(senderEmail, password);
-    smtpServer.EnableSsl = false;
-
-    smtpServer.Send(mail);
-    Console.WriteLine("邮件发送成功！");
-
-}
-
-static void countQutQIMTime(List<NonWork> tempNonWorkData, List<NonWork> completeNonWorkDataS, LOWDATA item)
-{
-    var tempNonWorkStopQTime = tempNonWorkData.Where(x => x.Name == "StopQTime" && x.DeviceName == item.DeviceName).FirstOrDefault();
-    if (tempNonWorkStopQTime != null)
-    {
-        tempNonWorkStopQTime.EndTime = item.Time;
-        tempNonWorkStopQTime.SumTime = (Convert.ToDateTime(tempNonWorkStopQTime.EndTime) - Convert.ToDateTime(tempNonWorkStopQTime.StartTime)).TotalMinutes;
-        tempNonWorkData.Remove(tempNonWorkStopQTime);
-        completeNonWorkDataS.Add(tempNonWorkStopQTime);
-    }
-}
