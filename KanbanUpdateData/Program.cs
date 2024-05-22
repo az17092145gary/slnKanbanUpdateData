@@ -274,7 +274,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         AO = AO + lastYieIDAO;
         var YieIdAO = y.Where(x => x.Defective == true && x.Throughput != true).Select(x => x.Sum).FirstOrDefault(0.0);
         //var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
-        var AllNGS = Convert.ToDouble(dailyERRDatas.Where(x => x.Type == "NGI" && x.WorkCode == y.Key.WorkCode).Sum(x => x.Count));
+        var AllNGS = Convert.ToDouble(dailyERRDatas.Where(x => x.Type == "NGI" && x.Line == y.Key.Line && x.WorkCode == y.Key.WorkCode).Sum(x => x.Count));
         var tempPerformance = Math.Round(((AO / SC) / ACT) * 100, 2);
         var Performance = (tempPerformance > 100 ? 99 : tempPerformance).ToString();
         //(測試機 + 全檢(不良數)) / 測試產出量 * 100
