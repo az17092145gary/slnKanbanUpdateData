@@ -32,7 +32,7 @@ async Task<TempData> createTemp(LOWDATA item)
     tempData.StopTenDown = new List<MachineStop>();
     var Date = item.Time.Split(' ');
     tempData.Line = item.ProductLine;
-    tempData.Factory = item.Factory;
+    //tempData.Factory = item.Factory;
     tempData.State = "未自動運行";
     tempData.ModelStartTime = item.Time;
     tempData.Model = item.Model;
@@ -103,7 +103,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
 
     //排除150R試做工單
     var machineDataList = completeLowDatas.Where(x => !x.WorkCode.Contains("150R-")).GroupBy(x =>
-    new { x.WorkCode, x.DeviceOrder, x.Item, x.Product, x.Line, x.Factory, x.DeviceName, x.Activation, x.Throughput, x.Defective, x.Exception }).Select(y =>
+    new { x.WorkCode, x.DeviceOrder, x.Item, x.Product, x.Line, x.DeviceName, x.Activation, x.Throughput, x.Defective, x.Exception }).Select(y =>
     {
         var EndTime = y.Max(x => x.EndTime);
         var tempModelSumTime = y.Max(x => x.ModelStartTime);
@@ -114,7 +114,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             y.Key.Line,
             y.Key.Item,
             y.Key.Product,
-            y.Key.Factory,
+            //y.Key.Factory,
             y.Key.DeviceOrder,
             y.Key.DeviceName,
             y.Key.Activation,
@@ -126,7 +126,8 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             StartTime = y.Min(x => x.StartTime),
             SumTime = y.Sum(z => z.SumTime),
             Sum = y.Sum(z => Convert.ToDouble(z.Sum)),
-            NGS = y.Sum(z => Convert.ToDouble(z.NGSum)),
+            //如果關機會重複計算NGS，所以取最大的NGS
+            NGS = y.Max(z => Convert.ToDouble(z.NGSum)),
             StopRunTime = y.Sum(z => Convert.ToDouble(z.RunSumStopTime))
         };
     }).ToList();
@@ -140,9 +141,9 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     //全部品名
     var Product_NameList = new List<TempStd>();
 
-    var tempStdList = completeLowDatas.Where(x => !x.WorkCode.Contains("150R-")).GroupBy(x => new { x.Factory, x.Item, x.Product, x.Line, x.WorkCode }).Select(y => new
+    var tempStdList = completeLowDatas.Where(x => !x.WorkCode.Contains("150R-")).GroupBy(x => new { x.Item, x.Product, x.Line, x.WorkCode }).Select(y => new
     {
-        y.Key.Factory,
+        //y.Key.Factory,
         y.Key.WorkCode,
         y.Key.Product,
         y.Key.Line,
@@ -177,7 +178,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
                 data.Item = item1.Item;
                 data.Line = item1.Line;
                 data.Product = item1.Product;
-                data.Factory = item1.Factory;
+                //data.Factory = item1.Factory;
                 data.Product_Name = stdPerformanceList.Where(x => x.Part_No == part.ToString()).Select(x => x.Product_Name).FirstOrDefault();
                 pcsList.Add(data);
             }
@@ -186,26 +187,6 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         if (!string.IsNullOrEmpty(emailContext))
         {
             SendEMail(emailContext, true);
-        }
-        //新增: 2024 / 03 / 18 取出當日瓶警機的全部品名
-        foreach (var item2 in completeLowDatas)
-        {
-            if (item2.Activation == true)
-            {
-                var partsql = $"select sfb05 as Part_No from dipf2.sfb_file,dipf2.ima_file where sfb05 =ima01 and sfb87='Y' and sfb01 = '{item2.WorkCode}'";
-                var part = oracleConnection.Query<string>(partsql).FirstOrDefault();
-                if (part != null)
-                {
-                    var data = new TempStd();
-                    data.WorkCode = item2.WorkCode;
-                    data.Item = item2.Item;
-                    data.Line = item2.Line;
-                    data.Product = item2.Product;
-                    data.Factory = item2.Factory;
-                    data.Product_Name = stdPerformanceList.Where(x => x.Part_No == part.ToString()).Select(x => x.Product_Name).FirstOrDefault();
-                    Product_NameList.Add(data);
-                }
-            }
         }
 
     }
@@ -230,44 +211,44 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     //ADR:時間稼動率
 
     //依照 廠區、產品、產線統整
-    var Line_MachineDailyData = machineDataList.GroupBy(x => new { x.WorkCode, x.Factory, x.Line, x.Product, x.Item }).Select(y =>
+    var Line_MachineDailyData = machineDataList.GroupBy(x => new { x.WorkCode, x.Line, x.Product, x.Item }).Select(y =>
     {
 
 
-        var lastDeviceOrder = Convert.ToInt32(completeLowDatas.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).Max(x => x.DeviceOrder));
+        var lastDeviceOrder = Convert.ToInt32(completeLowDatas.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Item == y.Key.Item && x.Product == y.Key.Product).Max(x => x.DeviceOrder));
 
         //工單開始時間
         var StartTime = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.StartTime).FirstOrDefault();
         var ModelSumTime = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.ModelSumTime).FirstOrDefault().ToString();
 
         //關機時間
-        var NonCloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("closeMachine")).Sum(x => x.SumTime) / 60;
+        var NonCloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("closeMachine")).Sum(x => x.SumTime) / 60;
         //預計投入工時(Throughput)
         var ETC = Math.Round((double)y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.SumTime).FirstOrDefault(0.0) / 60, 2);
         // 6S(Throughput)
         //var Non6sTime = dailyNonWorkDatas.Where(x =>x.WorkCode == y.Key.WorkCode && x.Throughput == true && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("6S")).Select(x => x.SumCount).FirstOrDefault() / 60;
         //缺料停機(Throughput)
-        var NonDMITime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("DMI")).Sum(x => x.SumTime) / 60;
+        var NonDMITime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("DMI")).Sum(x => x.SumTime) / 60;
         // 品檢模式(Throughput)
-        var NonQIMTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("QIM")).Sum(x => x.SumTime) / 60;
+        var NonQIMTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("QIM")).Sum(x => x.SumTime) / 60;
 
         //退出品檢模式到缺料停機或機台改善之前時間(Throughput)
-        var NonStopQTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("StopQTime")).Sum(x => x.SumTime) / 60;
+        var NonStopQTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("StopQTime")).Sum(x => x.SumTime) / 60;
 
         //無開機工時
         var NonTime = Math.Round(NonDMITime + NonQIMTime + NonStopQTime, 2);
         //設備損失工時已排除(Exception)//自動運行狀態下臨停10分鐘以上
         var StopRunTime = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.StopRunTime).FirstOrDefault(0.0) / 60;
         //機台故障維修//人員操作機故障時間
-        var MTCTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("MTC")).Sum(x => x.SumTime) / 60;
+        var MTCTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("MTC")).Sum(x => x.SumTime) / 60;
         StopRunTime = Math.Round(StopRunTime + MTCTime, 2);
 
         var PT = Math.Round((double)(ETC - NonTime), 2);
         var ACT = Math.Round(PT - StopRunTime, 2);
         //顯示當日更換的所有品名
         //var Product_Name = string.Join(", ", Product_NameList.Where(x => x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).GroupBy(x => x.Product_Name).Select(x => x.Key));
-        var Product_Name = pcsList.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).Select(y => y.Product_Name).FirstOrDefault();
-        var SC = Convert.ToDouble(pcsList.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Factory == y.Key.Factory && x.Item == y.Key.Item && x.Product == y.Key.Product).Select(y => y.PCS).FirstOrDefault());
+        var Product_Name = pcsList.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Item == y.Key.Item && x.Product == y.Key.Product).Select(y => y.Product_Name).FirstOrDefault();
+        var SC = Convert.ToDouble(pcsList.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Item == y.Key.Item && x.Product == y.Key.Product).Select(y => y.PCS).FirstOrDefault());
         //實際產量(Throughput)
         var AO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.Sum).FirstOrDefault(0.0);
         var lastYieIDAO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.NGS).FirstOrDefault(0.0);
@@ -298,7 +279,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             lastDeviceOrder,
             Product_Name,
             y.Key.WorkCode,
-            y.Key.Factory,
+            //y.Key.Factory,
             y.Key.Item,
             y.Key.Product,
             State,
@@ -335,7 +316,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     sql += " DELETE [AIOT].[dbo].[KanBan_MachineNonTime] ";
     conn.Execute(sql);
     sql = @" insert into [AIOT].[dbo].[KanBan_Line_MachineData]
-                            Values(@Factory,@Item,@Product,@State,@WorkCode,@ModelSumTime,@Product_Name,@Line,@Date,@StartTime,@MCT,@SC,@ETC,@PT,@ACT,@ACTH,@AO,@CAPU,@ADR,@Performance,@YieId,@Availability,@OEE,@NonTime,@StopRunTime,@AVGStopCount,@AllNGS)";
+                            Values(@Item,@Product,@State,@WorkCode,@ModelSumTime,@Product_Name,@Line,@Date,@StartTime,@MCT,@SC,@ETC,@PT,@ACT,@ACTH,@AO,@CAPU,@ADR,@Performance,@YieId,@Availability,@OEE,@NonTime,@StopRunTime,@AVGStopCount,@AllNGS)";
     ////執行資料庫
     conn.Execute(sql, Line_MachineDailyData);
     //無開機資料匯入資料庫
@@ -381,15 +362,39 @@ async void executeMethod()
     //結束時間
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
-    //_strTime = "2024-05-16 08:00:00";
-    //_endTime = "2024-05-16 08:30:00";
+    //_strTime = "2024-05-27 08:00:00";
+    //_endTime = "2024-05-27 15:00:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
-    string sql = @"SELECT F.Factory, F.Item,F.Product,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
-    sql += " FROM(select * FROM[AIOT].[dbo].[Machine_Data] WHERE TIME BETWEEN @_strTime AND @_endTime ) AS MD";
-    sql += " LEFT JOIN [AIOT].[dbo].[Factory]as F ON F.[IODviceName] = MD.[DeviceName] ";
-    //sql += " Where F.ProductLine = '12' OR F.ProductLine = '10'";
-    sql += " ORDER BY TIME,NAME";
+    //string sql = @"SELECT F.Factory, F.Item,F.Product,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
+    //sql += " FROM(select * FROM[AIOT].[dbo].[Machine_Data] WHERE TIME BETWEEN @_strTime AND @_endTime ) AS MD";
+    //sql += " LEFT JOIN [AIOT].[dbo].[Factory]as F ON F.[IODviceName] = MD.[DeviceName] ";
+    ////sql += " Where F.ProductLine = '12' OR F.ProductLine = '10'";
+    //sql += " ORDER BY TIME,NAME";
+
+    string sql = @"SELECT MD.DeviceName
+    ,MD.NAME
+    ,MD.QUALITY
+    ,MD.TIME
+    ,MD.VALUE
+    ,MD.Description
+    ,I.ItemName as Item
+    ,PD.ProductName as Product
+    ,L.LineName as ProductLine
+    ,M.Model
+    ,M.Defective
+    ,M.Activation
+    ,M.Exception
+    ,M.Throughput
+    ,M.DeviceOrder
+      FROM (SELECT * FROM[AIOT].[dbo].[Machine_Data] WHERE TIME BETWEEN @_strTime AND @_endTime)  AS MD
+      LEFT JOIN [AIOT].[dbo].[Machine] AS M ON MD.DeviceName = M.IODviceName
+      LEFT JOIN [AIOT].[dbo].[ProductProductionLines] AS PP ON PP.id = M.ProductProductionLinesID
+      LEFT JOIN [AIOT].[dbo].[ProductLine] AS L ON PP.LineID = L.LineID
+      LEFT JOIN [AIOT].[dbo].[Product] AS PD ON PD.ProductID = PP.ProductID
+      LEFT JOIN [AIOT].[dbo].[Item] AS I ON I.ItemID = PD.ItemID
+      ORDER BY TIME,NAME";
+
 
     //暫存資料分類
     var tempLowDatas = new List<TempData>();
@@ -486,7 +491,7 @@ async void executeMethod()
                             nonWork.DeviceName = item.DeviceName;
                             nonWork.Product = item.Product;
                             nonWork.Item = item.Item;
-                            nonWork.Factory = item.Factory;
+                            //nonWork.Factory = item.Factory;
                             nonWork.Line = item.ProductLine;
                             nonWork.Activation = item.Activation;
                             nonWork.Throughput = item.Throughput;
@@ -526,7 +531,7 @@ async void executeMethod()
                                 nonWorkStopQIMTime.Exception = item.Exception;
                                 nonWorkStopQIMTime.Product = item.Product;
                                 nonWorkStopQIMTime.Item = item.Item;
-                                nonWorkStopQIMTime.Factory = item.Factory;
+                                //nonWorkStopQIMTime.Factory = item.Factory;
                                 nonWorkStopQIMTime.Line = item.ProductLine;
                                 nonWorkStopQIMTime.StartTime = item.Time;
                                 nonWorkStopQIMTime.EndTime = item.Time;
@@ -573,7 +578,7 @@ async void executeMethod()
                             nonWork.Exception = item.Exception;
                             nonWork.Product = item.Product;
                             nonWork.Item = item.Item;
-                            nonWork.Factory = item.Factory;
+                            //nonWork.Factory = item.Factory;
                             nonWork.Line = item.ProductLine;
                             nonWork.Description = item.Description;
                             nonWork.StartTime = item.Time;
@@ -626,7 +631,7 @@ async void executeMethod()
                             nonWork.Exception = item.Exception;
                             nonWork.Product = item.Product;
                             nonWork.Item = item.Item;
-                            nonWork.Factory = item.Factory;
+                            //nonWork.Factory = item.Factory;
                             nonWork.Line = item.ProductLine;
                             nonWork.Description = item.Description;
                             nonWork.StartTime = item.Time;
@@ -660,11 +665,9 @@ async void executeMethod()
                     if (item.Name.ToUpper().Contains("_NGI_"))
                     {
                         //oldData.RunState == "1"拿掉在自動運行狀態下才計算
-                        if (item.Value != "0")
-                        {
-                            string type = "NGI";
-                            CountERRAndPath(item, oldData, type, _Date, dailyERRDatas);
-                        }
+                        string type = "NGI";
+                        CountERRAndPath(item, oldData, type, _Date, dailyERRDatas);
+
                     }
                     //判斷工單數量
                     if (item.Name.ToUpper().Contains("_WKS_"))
@@ -677,10 +680,7 @@ async void executeMethod()
                     //判斷不良總量
                     if (item.Name.ToUpper().Contains("_NGS_"))
                     {
-                        if (item.Value != "0")
-                        {
-                            oldData.NGSum += 1;
-                        }
+                        oldData.NGSum = Convert.ToInt32(item.Value);
                     }
                 }
                 //判斷是否處於無開機工時模式(品檢、缺料停機)
@@ -904,8 +904,18 @@ static void CountERRAndPath(LOWDATA item, TempData? oldData, string type, string
         if (type == "ERR")
         {
             data.Time += Convert.ToDateTime(item.Time).ToString("yyyy-MM-dd HH:mm:ss") + "\n";
+            data.Count++;
         }
-        data.Count++;
+        if (type == "NGI")
+        {
+            data.Count = Convert.ToInt32(item.Value);
+        }
+        else
+        {
+            data.Count++;
+        }
+
+
     }
     else
     {
@@ -921,7 +931,7 @@ static void CountERRAndPath(LOWDATA item, TempData? oldData, string type, string
         dailyERRData.WorkCode = oldData.WorkCode;
         dailyERRData.DeviceName = item.DeviceName;
         dailyERRData.Type = type;
-        dailyERRData.Count = 1;
+        dailyERRData.Count = type == "NGI" ? Convert.ToInt32(item.Value) : 1;
         dailyERRDatas.Add(dailyERRData);
 
     }
@@ -979,7 +989,7 @@ static void count6STime(string _strTime, string _Date, List<NonWork> completeNon
         nonWork6S.Exception = item.Exception;
         nonWork6S.Product = item.Product;
         nonWork6S.Item = item.Item;
-        nonWork6S.Factory = item.Factory;
+        //nonWork6S.Factory = item.Factory;
         nonWork6S.Line = item.ProductLine;
         nonWork6S.StartTime = _strTime;
         nonWork6S.EndTime = item.Time;
