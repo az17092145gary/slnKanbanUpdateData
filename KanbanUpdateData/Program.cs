@@ -251,8 +251,8 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var SC = Convert.ToDouble(pcsList.Where(x => x.WorkCode == y.Key.WorkCode && x.Line == y.Key.Line && x.Item == y.Key.Item && x.Product == y.Key.Product).Select(y => y.PCS).FirstOrDefault());
         //實際產量(Throughput)
         var AO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.Sum).FirstOrDefault(0.0);
-        var lastYieIDAO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.NGS).FirstOrDefault(0.0);
-        AO = AO + lastYieIDAO;
+        //var lastYieIDAO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.NGS).FirstOrDefault(0.0);
+        //AO = AO + lastYieIDAO;
         var YieIdAO = y.Where(x => x.Defective == true && x.Throughput != true).Select(x => x.Sum).FirstOrDefault(0.0);
         //var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
         var AllNGS = Convert.ToDouble(dailyERRDatas.Where(x => x.Type == "NGI" && x.Line == y.Key.Line && x.WorkCode == y.Key.WorkCode).Sum(x => x.Count));
@@ -260,7 +260,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var Performance = (tempPerformance > 100 ? 99 : tempPerformance).ToString();
         //(測試機 + 全檢(不良數)) / 測試產出量 * 100
         var YieId = Math.Round((100 - (AllNGS / YieIdAO) * 100), 2);
-        YieId = double.IsNaN(YieId) || double.IsNegativeInfinity(YieId) || double.IsPositiveInfinity(YieId) ? 100 : YieId;
+        YieId = double.IsNaN(YieId) || double.IsNegativeInfinity(YieId) || double.IsPositiveInfinity(YieId) || double.IsNegative(YieId) ? 100 : YieId;
         var Availability = Math.Round(((ACT / PT) * 100), 2).ToString();
         var OEE = Math.Round((Convert.ToDouble(Performance) / 100) * (Convert.ToDouble(YieId) / 100) * (Convert.ToDouble(Availability) / 100) * 100, 2).ToString();
         //工單總臨停
@@ -307,6 +307,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     });
 
     //2024/04/19 排除異常數據
+    
     Line_MachineDailyData = Line_MachineDailyData.Where(x => x.AO > 0 && Convert.ToDouble(x.Performance) > 0 && x.SC > 0).Select(x => x).ToList();
     //刪除看板系統紀錄
     sql = " DELETE [AIOT].[dbo].[KanBan_Line_MachineData] ";
@@ -362,8 +363,8 @@ async void executeMethod()
     //結束時間
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
-    //_strTime = "2024-05-27 08:00:00";
-    //_endTime = "2024-05-27 15:00:00";
+    //_strTime = "2024-05-31 08:00:00";
+    //_endTime = "2024-05-31 13:47:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     //string sql = @"SELECT F.Factory, F.Item,F.Product,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
@@ -689,15 +690,10 @@ async void executeMethod()
                     //判斷機台啟動
                     if (item.Name.ToUpper().Contains("_RUN_"))
                     {
-                        //開機停機時間收集
-                        MachineStop machineStop = new MachineStop();
-                        machineStop.DeviceName = item.DeviceName;
-                        machineStop.WorkCode = oldData.WorkCode;
-                        machineStop.Date = _Date;
-                        // 儲存機台狀況
-                        oldData.RunState = item.Value;
                         if (item.Value == "1")
                         {
+                            // 儲存機台狀況
+                            oldData.RunState = item.Value;
                             //看板計時總時間
                             oldData.ModelStartTime = null;
 
@@ -720,6 +716,12 @@ async void executeMethod()
                             //計算RunSumStopTime如果沒有RunEndTime(沒有停機時間)就不進行RunSumStopTime的計算，計算停機10分鐘以上的機器
                             if (!string.IsNullOrEmpty(oldData.RunEndTime))
                             {
+                                //開機停機時間收集
+                                MachineStop machineStop = new MachineStop();
+                                machineStop.DeviceName = item.DeviceName;
+                                machineStop.WorkCode = oldData.WorkCode;
+                                machineStop.Date = _Date;
+
                                 var ts = (Convert.ToDateTime(oldData.RunStartTime) - Convert.ToDateTime(oldData.RunEndTime)).TotalMinutes;
                                 //大於10分鐘以上才算做停機 ==> 稼動率參數使用
                                 if (ts > 10)
@@ -750,11 +752,16 @@ async void executeMethod()
                         }
                         else
                         {
-                            oldData.RunEndTime = item.Time;
-                            oldData.State = "未自動運行";
-
-                            //看板計時總時間
-                            oldData.ModelStartTime = item.Time;
+                            //如果RunState == null 代表工單未執行自動運行、缺料、機故
+                            if (oldData.RunState != null)
+                            {
+                                oldData.RunEndTime = item.Time;
+                                oldData.State = "未自動運行";
+                                // 儲存機台狀況
+                                oldData.RunState = item.Value;
+                                //看板計時總時間
+                                oldData.ModelStartTime = item.Time;
+                            }
                         }
                     }
                     //判斷PAT錯誤，開機五分鐘內的訊息不紀錄
