@@ -7,6 +7,9 @@ using Dapper;
 using Oracle.ManagedDataAccess.Client;
 using System.Diagnostics;
 using KanbanUpdateData.Modol;
+using System.ServiceProcess;
+using System.ComponentModel.Design;
+using System.ServiceProcess;
 
 
 
@@ -161,33 +164,55 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             var part = oracleConnection.Query<string>(partsql).FirstOrDefault();
 
             //2024/04/03增加移除找不到的PCS並寄信
-            var PCS = stdPerformanceList.Where(x => x.Part_No == part.ToString() && x.Model == item1.Model).Select(x => x.PCS).FirstOrDefault();
-            if (PCS == null)
+            if (part != null)
             {
-                var tempList = machineDataList.Where(x => x.Line == item1.Line && x.Item == item1.Item && x.Product == item1.Product).Select(x => x).ToList();
-                machineDataList = machineDataList.Except(tempList).ToList();
-                emailContext += "日期:" + _Date + "\n" + "工單編號:" + $"{item1.WorkCode}該工單對應不到標準產能。";
-                break;
+                var PCS = stdPerformanceList.Where(x => x.Part_No == part.ToString() && x.Model == item1.Model).Select(x => x.PCS).FirstOrDefault();
+                if (PCS == null)
+                {
+                    var tempList = machineDataList.Where(x => x.Line == item1.Line && x.Item == item1.Item && x.Product == item1.Product).Select(x => x).ToList();
+                    machineDataList = machineDataList.Except(tempList).ToList();
 
+                    //異常時停止KanBan自動運行Service
+                    ServiceController sc = new ServiceController("AIoTKanBanService");
+                    if (!(sc.Status == ServiceControllerStatus.Stopped) || (sc.Status == ServiceControllerStatus.StopPending))
+                    {
+                        sc.Stop();
+                        sc.Refresh();
+                    }
+                    emailContext += "日期:" + _Date + "\n" + "工單編號:" + $"{item1.WorkCode}該工單對應不到標準產能。";
+                    SendEMail(emailContext, true);
+                    break;
+
+                }
+                else
+                {
+                    var data = new TempStd();
+                    data.WorkCode = item1.WorkCode;
+                    data.PCS = PCS;
+                    data.Item = item1.Item;
+                    data.Line = item1.Line;
+                    data.Product = item1.Product;
+                    //data.Factory = item1.Factory;
+                    data.Product_Name = stdPerformanceList.Where(x => x.Part_No == part.ToString()).Select(x => x.Product_Name).FirstOrDefault();
+                    pcsList.Add(data);
+                }
             }
             else
             {
-                var data = new TempStd();
-                data.WorkCode = item1.WorkCode;
-                data.PCS = PCS;
-                data.Item = item1.Item;
-                data.Line = item1.Line;
-                data.Product = item1.Product;
-                //data.Factory = item1.Factory;
-                data.Product_Name = stdPerformanceList.Where(x => x.Part_No == part.ToString()).Select(x => x.Product_Name).FirstOrDefault();
-                pcsList.Add(data);
+                var tempList = machineDataList.Where(x => x.Line == item1.Line && x.Item == item1.Item && x.Product == item1.Product).Select(x => x).ToList();
+                machineDataList = machineDataList.Except(tempList).ToList();
+                //異常時停止KanBan自動運行Service
+                ServiceController sc = new ServiceController("AIoTKanBanService");
+                if (!(sc.Status == ServiceControllerStatus.Stopped) || (sc.Status == ServiceControllerStatus.StopPending))
+                {
+                    sc.Stop();
+                    sc.Refresh();
+                }
+                emailContext += "日期:" + _Date + "\n" + "工單編號:" + $"{item1.WorkCode}請確認該工單編號的正確性，於ERP無對應工單編號。";
+                SendEMail(emailContext, true);
             }
         }
-        //對應不到標準產能的工單通知生產人員
-        if (!string.IsNullOrEmpty(emailContext))
-        {
-            SendEMail(emailContext, true);
-        }
+
 
     }
     #endregion
@@ -222,7 +247,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var ModelSumTime = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.ModelSumTime).FirstOrDefault().ToString();
 
         //關機時間
-        var NonCloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("closeMachine")).Sum(x => x.SumTime) / 60;
+        //var NonCloseTime = completeNonWorkDataS.Where(x => x.WorkCode == y.Key.WorkCode && Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder && x.Line == y.Key.Line && x.Product == y.Key.Product && x.Item == y.Key.Item && x.Name.Contains("closeMachine")).Sum(x => x.SumTime) / 60;
         //預計投入工時(Throughput)
         var ETC = Math.Round((double)y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.SumTime).FirstOrDefault(0.0) / 60, 2);
         // 6S(Throughput)
@@ -253,10 +278,12 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         var AO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.Sum).FirstOrDefault(0.0);
         //var lastYieIDAO = y.Where(x => Convert.ToInt32(x.DeviceOrder) == lastDeviceOrder).Select(x => x.NGS).FirstOrDefault(0.0);
         //AO = AO + lastYieIDAO;
+        var ACTH = Math.Round((AO / SC), 2);
         var YieIdAO = y.Where(x => x.Defective == true && x.Throughput != true).Select(x => x.Sum).FirstOrDefault(0.0);
         //var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
         var AllNGS = Convert.ToDouble(dailyERRDatas.Where(x => x.Type == "NGI" && x.Line == y.Key.Line && x.WorkCode == y.Key.WorkCode).Sum(x => x.Count));
-        var tempPerformance = Math.Round(((AO / SC) / ACT) * 100, 2);
+        //var tempPerformance = Math.Round(((AO / SC) / ACT) * 100, 2);
+        var tempPerformance = Math.Round((ACTH / ACT) * 100, 2);
         var Performance = (tempPerformance > 100 ? 99 : tempPerformance).ToString();
         //(測試機 + 全檢(不良數)) / 測試產出量 * 100
         var YieId = Math.Round((100 - (AllNGS / YieIdAO) * 100), 2);
@@ -291,7 +318,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
             ETC,
             PT,
             ACT,
-            ACTH = Math.Round((AO / SC), 2),
+            ACTH,
             AO,
             CAPU = Math.Round(((double)(ETC / 24) * 100), 2),
             ADR = Math.Round((double)((PT / ETC) * 100), 2),
@@ -307,7 +334,7 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     });
 
     //2024/04/19 排除異常數據
-    
+
     Line_MachineDailyData = Line_MachineDailyData.Where(x => x.AO > 0 && Convert.ToDouble(x.Performance) > 0 && x.SC > 0).Select(x => x).ToList();
     //刪除看板系統紀錄
     sql = " DELETE [AIOT].[dbo].[KanBan_Line_MachineData] ";
@@ -372,6 +399,7 @@ async void executeMethod()
     //sql += " LEFT JOIN [AIOT].[dbo].[Factory]as F ON F.[IODviceName] = MD.[DeviceName] ";
     ////sql += " Where F.ProductLine = '12' OR F.ProductLine = '10'";
     //sql += " ORDER BY TIME,NAME";
+
 
     string sql = @"SELECT MD.DeviceName
     ,MD.NAME
@@ -876,7 +904,8 @@ async void executeMethod()
         //2024/03/06新增
         //判斷產線有沒有執行，如果沒有從completeLowDatas移除
         //沒有RunStartTime等於沒有自動運行
-        completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime) || Convert.ToInt32(x.Sum) <= 1);
+        //completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime) || Convert.ToInt32(x.Sum) <= 1);
+        completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime));
         #endregion
         //當日有資料才進行分析
         if (completeLowDatas.Count > 0)
@@ -908,17 +937,16 @@ static void CountERRAndPath(LOWDATA item, TempData? oldData, string type, string
     if (data != null)
     {
         //只有臨停才進行時間紀錄
-        if (type == "ERR")
-        {
-            data.Time += Convert.ToDateTime(item.Time).ToString("yyyy-MM-dd HH:mm:ss") + "\n";
-            data.Count++;
-        }
         if (type == "NGI")
         {
             data.Count = Convert.ToInt32(item.Value);
         }
         else
         {
+            if (type == "ERR")
+            {
+                data.Time += Convert.ToDateTime(item.Time).ToString("yyyy-MM-dd HH:mm:ss") + "\n";
+            }
             data.Count++;
         }
 
@@ -975,7 +1003,6 @@ static void SendEMail(string Conetext, bool check)
     smtpServer.EnableSsl = false;
 
     smtpServer.Send(mail);
-    Console.WriteLine("邮件发送成功！");
 
 }
 static void count6STime(string _strTime, string _Date, List<NonWork> completeNonWorkDataS, LOWDATA item, TempData? oldData)
