@@ -15,6 +15,10 @@ namespace KanbanUpdateData.Model
         public string? Time { set; get; }
         public string? Type { get; set; }
         public string? Name { get; set; }
+        public bool? Defective { get; set; }
+        public bool? Activation { get; set; }
+        public bool? Throughput { get; set; }
+        public bool? Exception { get; set; }
         public int? Count { get; set; }
     }
 }

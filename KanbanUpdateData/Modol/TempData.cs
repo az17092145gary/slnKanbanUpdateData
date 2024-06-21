@@ -30,6 +30,7 @@ namespace KanbanUpdateData.Model
         public string? StartTime { get; set; }
         public string? EndTime { get; set; }
         public double? SumTime { get; set; }
+        public int? FirstSum { get; set; }
         public int? Sum { get; set; }
         public int? NGSum { get; set; }
         public string? RunState { get; set; }

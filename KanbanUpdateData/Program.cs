@@ -280,6 +280,8 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         //AO = AO + lastYieIDAO;
         var ACTH = Math.Round((AO / SC), 2);
         var YieIdAO = y.Where(x => x.Defective == true && x.Throughput != true).Select(x => x.Sum).FirstOrDefault(0.0);
+        //測試機投入數
+        YieIdAO += Convert.ToDouble(dailyERRDatas.Where(x => x.Defective == true && x.Throughput != true && x.Type == "NGI" && x.Line == y.Key.Line && x.WorkCode == y.Key.WorkCode).Sum(x => x.Count));
         //var AllNGS = y.Where(x => x.Defective == true).Select(x => x.NGS).DefaultIfEmpty(0.0).Sum();
         var AllNGS = Convert.ToDouble(dailyERRDatas.Where(x => x.Type == "NGI" && x.Line == y.Key.Line && x.WorkCode == y.Key.WorkCode).Sum(x => x.Count));
         //var tempPerformance = Math.Round(((AO / SC) / ACT) * 100, 2);
@@ -390,8 +392,8 @@ async void executeMethod()
     //結束時間
     var _endTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     //今日日期
-    //_strTime = "2024-05-31 08:00:00";
-    //_endTime = "2024-05-31 13:47:00";
+    //_strTime = "2024-06-18 08:00:00";
+    //_endTime = "2024-06-18 16:47:00";
     var _Date = Convert.ToDateTime(_strTime).ToString("yyyy-MM-dd");
     //取出當天的LowData
     //string sql = @"SELECT F.Factory, F.Item,F.Product,F.Model,F.DeviceOrder,F.ProductLine,F.Activation,F.Throughput,F.Defective,F.Exception,MD.DeviceName,MD.NAME,MD.QUALITY,MD.TIME,MD.VALUE,MD.Description ";
@@ -480,6 +482,7 @@ async void executeMethod()
                 var tempWorkCode = tempBeforeWorkCodeList.FirstOrDefault(x => x.DeviceName == oldData.DeviceName)?.WorkCode;
 
                 oldData.WorkCode = tempWorkCode == null ? findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData) : tempWorkCode;
+
                 //oldData.WorkCode = findWKC(conn, sql, item.DeviceName, _strTime, _endTime, lastTimeData);
             }
 
@@ -688,7 +691,7 @@ async void executeMethod()
                     oldData.MTCSuperMode = item.Value == "1" ? true : false;
                 }
                 //品檢模式不計算產量、不良總數、CR不良、CCD1不良等等
-                if (oldData.QIMSuperMode != true)
+                if (oldData.QIMSuperMode != true && oldData.RunStartTime != null)
                 {
                     //判斷不良品分類
                     if (item.Name.ToUpper().Contains("_NGI_"))
@@ -701,10 +704,26 @@ async void executeMethod()
                     //判斷工單數量
                     if (item.Name.ToUpper().Contains("_WKS_"))
                     {
-                        if (item.Value != "0")
+                        if (item.Value != "0" && oldData.Line == "12")
                         {
                             oldData.Sum += 1;
                         }
+                        else
+                        {
+                            if (oldData.FirstSum == null)
+                            {
+                                oldData.FirstSum = Convert.ToInt32(item.Value);
+                                oldData.Sum = oldData.FirstSum;
+                            }
+                            else
+                            {
+                                if (item.Value != "0")
+                                {
+                                    oldData.Sum = Convert.ToInt32(item.Value) - oldData.FirstSum;
+                                }
+                            }
+                        }
+
                     }
                     //判斷不良總量
                     if (item.Name.ToUpper().Contains("_NGS_"))
@@ -905,7 +924,7 @@ async void executeMethod()
         //判斷產線有沒有執行，如果沒有從completeLowDatas移除
         //沒有RunStartTime等於沒有自動運行
         //completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime) || Convert.ToInt32(x.Sum) <= 1);
-        completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime));
+        completeLowDatas.RemoveAll(x => string.IsNullOrEmpty(x.RunStartTime) || x.Sum == 0);
         #endregion
         //當日有資料才進行分析
         if (completeLowDatas.Count > 0)
@@ -967,6 +986,8 @@ static void CountERRAndPath(LOWDATA item, TempData? oldData, string type, string
         dailyERRData.DeviceName = item.DeviceName;
         dailyERRData.Type = type;
         dailyERRData.Count = type == "NGI" ? Convert.ToInt32(item.Value) : 1;
+        dailyERRData.Defective = item.Defective;
+        dailyERRData.Throughput = item.Throughput;
         dailyERRDatas.Add(dailyERRData);
 
     }
