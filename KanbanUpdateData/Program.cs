@@ -345,13 +345,13 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
     sql += " DELETE [AIOT].[dbo].[KanBan_MachineERRData] ";
     sql += " DELETE [AIOT].[dbo].[KanBan_MachineNonTime] ";
     conn.Execute(sql);
-    sql = @" insert into [AIOT].[dbo].[KanBan_Line_MachineData]
-                            Values(@Item,@Product,@State,@WorkCode,@ModelSumTime,@Product_Name,@Line,@Date,@StartTime,@MCT,@SC,@ETC,@PT,@ACT,@ACTH,@AO,@CAPU,@ADR,@Performance,@YieId,@Availability,@OEE,@NonTime,@StopRunTime,@AVGStopCount,@AllNGS)";
+    sql = @" INSERT INTO [AIOT].[dbo].[KanBan_Line_MachineData]
+                            VALUES(@Item,@Product,@State,@WorkCode,@ModelSumTime,@Product_Name,@Line,@Date,@StartTime,@MCT,@SC,@ETC,@PT,@ACT,@ACTH,@AO,@CAPU,@ADR,@Performance,@YieId,@Availability,@OEE,@NonTime,@StopRunTime,@AVGStopCount,@AllNGS)";
     ////執行資料庫
     conn.Execute(sql, Line_MachineDailyData);
     //無開機資料匯入資料庫
-    sql = @"insert into [AIOT].[dbo].[KanBan_MachineNonTime]
-                            Values(@DeviceName,@WorkCode,@Description,@Name,@Date,@StartTime,@EndTime,@SumTime)";
+    sql = @" INSERT INTO [AIOT].[dbo].[KanBan_MachineNonTime]
+                            VALUES(@DeviceName,@WorkCode,@Description,@Name,@Date,@StartTime,@EndTime,@SumTime)";
     ////執行資料庫
     conn.Execute(sql, completeNonWorkDataS);
     //#endregion
@@ -366,8 +366,8 @@ void inputData(out string sql, string _strTime, string _endTime, string _Date, S
         TenDownDatas.AddRange(item.StopTenDown);
     }
     //錯誤訊息DailyERRDatas匯入資料庫
-    sql = @"insert into [AIOT].[dbo].[KanBan_MachineERRData]
-                            Values(@DeviceName,@WorkCode,@Date,@Time,@Type,@Name,@Count)";
+    sql = @" INSERT INTO [AIOT].[dbo].[KanBan_MachineERRData]
+                            VALUES(@DeviceName,@WorkCode,@Date,@Time,@Type,@Name,@Count)";
     //執行資料庫
     conn.Execute(sql, dailyERRDatas);
 
