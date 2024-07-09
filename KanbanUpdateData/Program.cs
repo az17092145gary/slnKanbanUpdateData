@@ -1010,7 +1010,7 @@ static void SendEMail(string Conetext, bool check)
     {
         mail.To.Add("ibukiboy@dip.com.tw");
         mail.To.Add("why1@dip.net.cn");
-        mail.To.Add("luobing@dip.net.cn");
+        //mail.To.Add("luobing@dip.net.cn");
         mail.CC.Add("gary.tsai@dip.com.tw");
     }
     else
